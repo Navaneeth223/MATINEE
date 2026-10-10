@@ -1,0 +1,44 @@
+:root {
+  /* Cinematic warm palette */
+  --color-surface-bg: #0d0b0e;
+  --color-surface-card: #1a1621;
+  --color-surface-overlay: #251f2e;
+  
+  --color-accent-primary: #c8956c;
+  --color-accent-secondary: #8b5e3c;
+  --color-accent-muted: #5c3d2e;
+  
+  --color-text-primary: #f2ebe4;
+  --color-text-secondary: #a89880;
+  --color-text-muted: #6b5d52;
+  
+  --color-status-success: #4caf82;
+  --color-status-warning: #e8a838;
+  --color-status-error: #d95f5f;
+  --color-status-info: #5b8dd9;
+  
+  /* Typography */
+  --font-sans: 'Noto Sans', 'Noto Sans Thai', 'Noto Sans Malayalam', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+  
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.25rem;
+  --text-2xl: 1.5rem;
+  --text-3xl: 1.875rem;
+  --text-4xl: 2.25rem;
+  
+  /* Spacing */
+  --space-0: 0;
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-12: 3rem;
+  --space-16: 4rem;
+  --space-24: 6rem;
+}

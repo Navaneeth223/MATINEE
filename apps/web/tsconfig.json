@@ -1,0 +1,26 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "paths": {
+      "@/*": ["./src/*"]
+    },
+    "resolveJsonModule": true,
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "composite": false,
+    "incremental": false
+  },
+  "include": ["src/**/*"],
+  "references": [
+    { "path": "../../packages/protocol" },
+    { "path": "../../packages/sync-engine" },
+    { "path": "../../packages/subtitle-core" },
+    { "path": "../../packages/subtitle-pipeline" },
+    { "path": "../../packages/ui-tokens" }
+  ]
+}

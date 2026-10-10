@@ -1,0 +1,22 @@
+{
+  "name": "@matinee/ui-tokens",
+  "version": "0.0.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./tokens.css": "./dist/tokens.css"
+  },
+  "scripts": {
+    "build": "tsc && node -e \"import('fs').then(fs => fs.cpSync('src/tokens.css', 'dist/tokens.css'))\"",
+    "typecheck": "tsc --noEmit",
+    "clean": "node -e \"import('fs').then(fs => fs.rmSync('dist', {recursive: true, force: true}))\""
+  },
+  "devDependencies": {
+    "typescript": "5.9.3"
+  }
+}
