@@ -1,8 +1,9 @@
 # Matinee Project State
 
 **Last updated:** 2026-10-10  
-**Current milestone:** M2 (Rooms + E2EE + presence + invite) — ✅ COMPLETE  
-**Gate A:** APPROVED with conditions
+**Current milestone:** M2b (Security fixes and hardening) — 🔴 IN PROGRESS  
+**Gate A:** APPROVED with conditions  
+**M2 status:** NOT COMPLETE - critical security gaps found
 
 ## Owner Answers
 - **Partner browser:** Safari (assumed)
@@ -19,8 +20,20 @@
 
 ## Milestone Status
 - **M1:** Foundation ✅ DONE (scaffolding complete)
-- **M2:** Rooms + E2EE + presence + invite ✅ DONE (Cloudflare Workers + Durable Objects, ECDH P-256 → AES-GCM-256)
-- **M3:** From Me core + remote control ⏳ NEXT (spikes S5+S1 first at M3 start)
+- **M2:** Rooms + E2EE + presence + invite ❌ NOT COMPLETE (critical security gaps)
+- **M2b:** Security fixes and hardening 🔴 IN PROGRESS (MUST fix before M3)
+- **M3:** From Me core + remote control ⏳ BLOCKED (waiting for M2b completion)
+
+## M2 Critical Security Issues (Must-Fix in M2b)
+
+1. **Unauthenticated ECDH** - Server generates room secret (wrong); vulnerable to MITM
+2. **No message encryption** - Only handshake encrypted; all other messages plaintext visible to server
+3. **No access control** - Unlimited peers, no host authentication, no knock/admit
+4. **Wrong expiry** - 30 minutes instead of spec's 12 hours
+5. **No security tests** - Tamper/replay/wrong-key attacks untested
+6. **Missing Should-haves** - No SAS words, QR codes, room lock
+
+**Blocking M3:** These MUST be fixed before M3 can start. See docs/M2B-PLAN.md for details.
 - **M4:** Theatre UI + Mixer + face bubbles ⏳ PENDING
 - **M5:** Voice/video + companion device + Doctor ⏳ PENDING
 - **M6:** Subtitles v1 ⏳ PENDING (spike S6 first)
