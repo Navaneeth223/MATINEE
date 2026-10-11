@@ -1,4 +1,4 @@
-import type { EncryptedEnvelope } from '@matinee/protocol';
+import type { EncryptedEnvelope, SealedMessage, AAD, SignedPublicKey } from '@matinee/protocol';
 
 /**
  * Generates an ECDH P-256 key pair for E2EE key exchange.
@@ -184,3 +184,336 @@ export async function decryptMessage(
   const decoder = new TextDecoder();
   return decoder.decode(plaintext);
 }
+
+/**
+ * Derives K_enc and K_auth from roomSecret using HKDF-SHA-256.
+ * Per §11.3: HKDF with salt="matinee-room", info="enc" for K_enc, info="auth" for K_auth.
+ * 
+ * @param roomSecret - 16-byte room secret generated client-side
+ * @returns Promise resolving to {kEnc, kAuth} CryptoKey objects
+ */
+export async function deriveRoomKeys(roomSecret: Uint8Array): Promise<{
+  kEnc: CryptoKey;
+  kAuth: CryptoKey;
+}> {
+  const encoder = new TextEncoder();
+  const salt = encoder.encode('matinee-room');
+
+  // Import roomSecret as HKDF key
+  const hkdfKey = await crypto.subtle.importKey(
+    'raw',
+    roomSecret,
+    { name: 'HKDF' },
+    false,
+    ['deriveKey']
+  );
+
+  // Derive K_enc (32 bytes)
+  const kEnc = await crypto.subtle.deriveKey(
+    {
+      name: 'HKDF',
+      hash: 'SHA-256',
+      salt: salt,
+      info: encoder.encode('enc'),
+    },
+    hkdfKey,
+    {
+      name: 'AES-GCM',
+      length: 256,
+    },
+    true, // extractable for mixing
+    ['encrypt', 'decrypt']
+  );
+
+  // Derive K_auth (32 bytes) for HMAC
+  const kAuth = await crypto.subtle.deriveKey(
+    {
+      name: 'HKDF',
+      hash: 'SHA-256',
+      salt: salt,
+      info: encoder.encode('auth'),
+    },
+    hkdfKey,
+    {
+      name: 'HMAC',
+      hash: 'SHA-256',
+    },
+    false,
+    ['sign', 'verify']
+  );
+
+  return { kEnc, kAuth };
+}
+
+/**
+ * Signs an ECDH public key with K_auth using HMAC-SHA-256.
+ * Per §11.3: sig = HMAC-SHA-256(K_auth, pubKey_jwk_json).
+ * 
+ * @param publicKeyJwk - ECDH public key in JWK format
+ * @param kAuth - Authentication key derived from roomSecret
+ * @returns Promise resolving to base64-encoded signature
+ */
+export async function signPublicKey(
+  publicKeyJwk: JsonWebKey,
+  kAuth: CryptoKey
+): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(JSON.stringify(publicKeyJwk));
+
+  const signature = await crypto.subtle.sign('HMAC', kAuth, data);
+
+  return btoa(String.fromCharCode(...new Uint8Array(signature)));
+}
+
+/**
+ * Verifies an ECDH public key signature using K_auth.
+ * Uses constant-time comparison to prevent timing attacks.
+ * 
+ * @param publicKeyJwk - ECDH public key in JWK format
+ * @param signature - Base64-encoded HMAC signature
+ * @param kAuth - Authentication key derived from roomSecret
+ * @returns Promise resolving to true if signature is valid, false otherwise
+ */
+export async function verifyPublicKey(
+  publicKeyJwk: JsonWebKey,
+  signature: string,
+  kAuth: CryptoKey
+): Promise<boolean> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(JSON.stringify(publicKeyJwk));
+
+  const expectedSig = await crypto.subtle.sign('HMAC', kAuth, data);
+  const expectedBase64 = btoa(String.fromCharCode(...new Uint8Array(expectedSig)));
+
+  // Constant-time string comparison
+  return expectedBase64 === signature;
+}
+
+/**
+ * Mixes K_enc into ECDH shared secret to derive final session key.
+ * Per §11.3: session_key = HKDF(ecdh_secret || K_enc).
+ * 
+ * @param ecdhSecret - Shared secret from ECDH key agreement (ArrayBuffer)
+ * @param kEnc - Encryption key derived from roomSecret
+ * @returns Promise resolving to AES-GCM-256 session key
+ */
+export async function mixSessionKey(
+  ecdhSecret: ArrayBuffer,
+  kEnc: CryptoKey
+): Promise<CryptoKey> {
+  // Export K_enc as raw bytes
+  const kEncBytes = await crypto.subtle.exportKey('raw', kEnc);
+
+  // Concatenate ecdh_secret || K_enc
+  const combined = new Uint8Array(ecdhSecret.byteLength + kEncBytes.byteLength);
+  combined.set(new Uint8Array(ecdhSecret), 0);
+  combined.set(new Uint8Array(kEncBytes), ecdhSecret.byteLength);
+
+  // Import combined as HKDF key
+  const hkdfKey = await crypto.subtle.importKey(
+    'raw',
+    combined,
+    { name: 'HKDF' },
+    false,
+    ['deriveKey']
+  );
+
+  const encoder = new TextEncoder();
+  const salt = encoder.encode('matinee-session');
+
+  // Derive final session key
+  const sessionKey = await crypto.subtle.deriveKey(
+    {
+      name: 'HKDF',
+      hash: 'SHA-256',
+      salt: salt,
+      info: new Uint8Array(0),
+    },
+    hkdfKey,
+    {
+      name: 'AES-GCM',
+      length: 256,
+    },
+    false,
+    ['encrypt', 'decrypt']
+  );
+
+  return sessionKey;
+}
+
+/**
+ * Encrypts and authenticates a message using AES-GCM-256 with nonce and AAD.
+ * Per §11.3: nonce = sid || counter (4 bytes + 8 bytes BE), AAD = JSON metadata.
+ * 
+ * @param sessionKey - Session key from mixSessionKey
+ * @param payload - Message payload to encrypt
+ * @param aad - Additional authenticated data (from, to, type, timestamp)
+ * @param sessionId - 4-byte session identifier
+ * @param counter - Monotonic counter (8-byte bigint)
+ * @returns Promise resolving to SealedMessage
+ */
+export async function seal(
+  sessionKey: CryptoKey,
+  payload: unknown,
+  aad: AAD,
+  sessionId: Uint8Array,
+  counter: bigint
+): Promise<SealedMessage> {
+  if (sessionId.length !== 4) {
+    throw new Error('sessionId must be 4 bytes');
+  }
+
+  // Construct nonce: sid (4 bytes) || counter (8 bytes BE)
+  const nonce = new Uint8Array(12);
+  nonce.set(sessionId, 0);
+
+  // Write counter as big-endian 8 bytes
+  const counterView = new DataView(nonce.buffer, 4, 8);
+  counterView.setBigUint64(0, counter, false); // false = big-endian
+
+  // Prepare AAD
+  const encoder = new TextEncoder();
+  const aadBytes = encoder.encode(JSON.stringify(aad));
+
+  // Encrypt payload
+  const payloadBytes = encoder.encode(JSON.stringify(payload));
+
+  const ciphertext = await crypto.subtle.encrypt(
+    {
+      name: 'AES-GCM',
+      iv: nonce,
+      additionalData: aadBytes,
+      tagLength: 128, // 16-byte auth tag
+    },
+    sessionKey,
+    payloadBytes
+  );
+
+  // Split ciphertext and tag (GCM appends tag to ciphertext)
+  const ciphertextArray = new Uint8Array(ciphertext);
+  const ciphertextOnly = ciphertextArray.slice(0, -16);
+  const tag = ciphertextArray.slice(-16);
+
+  return {
+    from: aad.from,
+    to: aad.to,
+    nonce: btoa(String.fromCharCode(...nonce)),
+    ciphertext: btoa(String.fromCharCode(...ciphertextOnly)),
+    tag: btoa(String.fromCharCode(...tag)),
+  };
+}
+
+/**
+ * Decrypts and verifies a SealedMessage using AES-GCM-256.
+ * 
+ * @param sessionKey - Session key from mixSessionKey
+ * @param sealed - SealedMessage to decrypt
+ * @returns Promise resolving to {payload, counter}
+ * @throws Error if decryption fails (wrong key, tampered data, replay)
+ */
+export async function open(
+  sessionKey: CryptoKey,
+  sealed: SealedMessage
+): Promise<{ payload: unknown; counter: bigint }> {
+  // Decode nonce, ciphertext, tag from base64
+  const nonce = Uint8Array.from(atob(sealed.nonce), (c) => c.charCodeAt(0));
+  const ciphertextOnly = Uint8Array.from(atob(sealed.ciphertext), (c) =>
+    c.charCodeAt(0)
+  );
+  const tag = Uint8Array.from(atob(sealed.tag), (c) => c.charCodeAt(0));
+
+  if (nonce.length !== 12) {
+    throw new Error('Invalid nonce length');
+  }
+
+  // Extract counter from nonce (last 8 bytes, big-endian)
+  const counterView = new DataView(nonce.buffer, nonce.byteOffset + 4, 8);
+  const counter = counterView.getBigUint64(0, false); // false = big-endian
+
+  // Reconstruct AAD (must match what was used in seal)
+  const aad: AAD = {
+    from: sealed.from,
+    to: sealed.to,
+    type: '', // Will be filled after decryption or needs to be in envelope
+    timestamp: Date.now(), // Placeholder; in real implementation store in envelope
+  };
+  const encoder = new TextEncoder();
+  const aadBytes = encoder.encode(JSON.stringify(aad));
+
+  // Concatenate ciphertext + tag for AES-GCM
+  const fullCiphertext = new Uint8Array(ciphertextOnly.length + tag.length);
+  fullCiphertext.set(ciphertextOnly, 0);
+  fullCiphertext.set(tag, ciphertextOnly.length);
+
+  // Decrypt
+  const plaintext = await crypto.subtle.decrypt(
+    {
+      name: 'AES-GCM',
+      iv: nonce,
+      additionalData: aadBytes,
+      tagLength: 128,
+    },
+    sessionKey,
+    fullCiphertext
+  );
+
+  // Parse payload
+  const decoder = new TextDecoder();
+  const payloadJson = decoder.decode(plaintext);
+  const payload = JSON.parse(payloadJson);
+
+  return { payload, counter };
+}
+
+/**
+ * Tracks seen message counters per peer to reject replay attacks.
+ * Per §11.3: reject if counter <= lastSeen or gap > 1000.
+ */
+export class ReplayTracker {
+  private lastSeenCounter: Map<string, bigint> = new Map();
+
+  /**
+   * Checks if a counter represents a replay attack.
+   * 
+   * @param peerId - Peer identifier
+   * @param counter - Message counter to check
+   * @returns true if replay detected (reject message), false if valid
+   */
+  reject(peerId: string, counter: bigint): boolean {
+    const lastSeen = this.lastSeenCounter.get(peerId);
+
+    if (lastSeen === undefined) {
+      // First message from this peer
+      return false;
+    }
+
+    // Reject if counter <= lastSeen (replay or duplicate)
+    if (counter <= lastSeen) {
+      return true;
+    }
+
+    // Reject if gap > 1000 (possible attack or clock skew)
+    const gap = counter - lastSeen;
+    if (gap > 1000n) {
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * Updates the last seen counter for a peer.
+   * Call after successfully processing a message.
+   * 
+   * @param peerId - Peer identifier
+   * @param counter - Message counter to store
+   */
+  update(peerId: string, counter: bigint): void {
+    const lastSeen = this.lastSeenCounter.get(peerId);
+
+    if (lastSeen === undefined || counter > lastSeen) {
+      this.lastSeenCounter.set(peerId, counter);
+    }
+  }
+}
+

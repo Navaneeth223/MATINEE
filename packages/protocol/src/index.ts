@@ -68,3 +68,24 @@ export interface EncryptedEnvelope {
   ciphertext: string;
   tag?: string;
 }
+
+// M2b universal seal/open encryption
+export interface SealedMessage {
+  from: string;
+  to: string | null;
+  nonce: string; // base64(sid || counter)
+  ciphertext: string; // base64
+  tag: string; // base64 GCM auth tag
+}
+
+export interface AAD {
+  from: string;
+  to: string | null;
+  type: string;
+  timestamp: number;
+}
+
+export interface SignedPublicKey {
+  publicKey: JsonWebKey;
+  signature: string; // base64 HMAC-SHA-256
+}
