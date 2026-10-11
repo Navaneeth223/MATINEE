@@ -6,6 +6,17 @@ export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
     
+    // Handle CORS preflight
+    if (request.method === 'OPTIONS') {
+      return new Response(null, {
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type',
+        },
+      });
+    }
+    
     // Route API requests
     if (url.pathname.startsWith('/api/rooms')) {
       return handleRooms(request, env);
@@ -28,13 +39,22 @@ export default {
 } satisfies ExportedHandler<Env>;
 
 async function handleRooms(req: Request, env: Env): Promise<Response> {
+  const corsHeaders = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type',
+  };
+  
   if (req.method === 'POST') {
     const roomId = crypto.randomUUID();
     const url = new URL(req.url);
     const inviteUrl = `${url.origin}/room/${roomId}`;
-    return Response.json({ roomId, inviteUrl }, { status: 201 });
+    return Response.json({ roomId, inviteUrl }, { 
+      status: 201,
+      headers: corsHeaders,
+    });
   }
-  return new Response('Method Not Allowed', { status: 405 });
+  return new Response('Method Not Allowed', { status: 405, headers: corsHeaders });
 }
 
 async function handleICE(_req: Request, _env: Env): Promise<Response> {
@@ -43,7 +63,13 @@ async function handleICE(_req: Request, _env: Env): Promise<Response> {
     { urls: 'stun:stun.cloudflare.com:3478' },
     { urls: 'stun:stun.l.google.com:19302' },
   ];
-  return Response.json({ iceServers });
+  return Response.json({ iceServers }, {
+    headers: {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type',
+    },
+  });
 }
 
 interface Env {
