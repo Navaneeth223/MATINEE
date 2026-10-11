@@ -76,7 +76,21 @@ export default function RoomPage() {
 
   const handleCopyInvite = async () => {
     try {
-      await navigator.clipboard.writeText(inviteUrl);
+      // Try modern clipboard API first (Fix #7: add fallback)
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(inviteUrl);
+      } else {
+        // Fallback for older browsers or non-secure contexts
+        const textarea = document.createElement('textarea');
+        textarea.value = inviteUrl;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+      }
+      
       setCopyFeedback(true);
       setTimeout(() => setCopyFeedback(false), 2000);
     } catch (error) {

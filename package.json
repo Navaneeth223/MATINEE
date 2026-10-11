@@ -17,8 +17,10 @@
     "clean": "turbo run clean"
   },
   "devDependencies": {
-    "typescript": "5.9.3",
+    "@playwright/test": "^1.64.0",
+    "playwright": "^1.64.0",
+    "prettier": "^3.4.2",
     "turbo": "^2.3.3",
-    "prettier": "^3.4.2"
+    "typescript": "5.9.3"
   }
 }

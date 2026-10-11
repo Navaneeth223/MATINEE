@@ -16,6 +16,7 @@ type EventHandler = (...args: unknown[]) => void;
 /**
  * RoomClient manages WebSocket connection, E2EE key exchange, and event emission.
  * Automatically performs E2EE key exchange on connection and emits 'ready' when encryption is established.
+ * Implements exponential back-off reconnection (FR-104).
  */
 export default class RoomClient {
   private roomId: string;
@@ -27,6 +28,15 @@ export default class RoomClient {
   private eventHandlers: Map<string, EventHandler[]> = new Map();
   private connectionState: ConnectionState = 'disconnected';
   private peers: Peer[] = [];
+  private expectedPeerCount: number = 0;
+  private initialPeerCountReceived: boolean = false;
+  
+  // Reconnection state (FR-104)
+  private autoReconnect: boolean = true;
+  private reconnectAttempts: number = 0;
+  private reconnectStartTime: number | null = null;
+  private reconnectTimeoutId: ReturnType<typeof setTimeout> | null = null;
+  private manualDisconnect: boolean = false;
 
   constructor(roomId: string, peerId: string, displayName: string) {
     this.roomId = roomId;
@@ -46,11 +56,15 @@ export default class RoomClient {
 
     this.connectionState = 'connecting';
 
-    // Generate ECDH key pair
-    this.keyPair = await generateKeyPair();
+    // Generate ECDH key pair (reuse if reconnecting with existing key)
+    if (!this.keyPair) {
+      this.keyPair = await generateKeyPair();
+    }
 
-    // Construct WebSocket URL
-    const wsUrl = `ws://localhost:8787/ws/${this.roomId}?peerId=${encodeURIComponent(
+    // Construct WebSocket URL (use relative path for deployment compatibility)
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const host = window.location.host;
+    const wsUrl = `${protocol}//${host}/ws/${this.roomId}?peerId=${encodeURIComponent(
       this.peerId
     )}&name=${encodeURIComponent(this.displayName)}`;
 
@@ -60,6 +74,11 @@ export default class RoomClient {
     this.ws.onopen = async () => {
       console.log('RoomClient: WebSocket connected');
       this.connectionState = 'connected';
+      
+      // Reset reconnection state on successful connection
+      this.reconnectAttempts = 0;
+      this.reconnectStartTime = null;
+      
       this.emit('connected');
 
       // Broadcast public key for E2EE key exchange
@@ -92,8 +111,14 @@ export default class RoomClient {
 
     this.ws.onclose = () => {
       console.log('RoomClient: WebSocket closed');
+      const wasConnected = this.connectionState !== 'disconnected';
       this.connectionState = 'disconnected';
       this.emit('disconnected');
+      
+      // Attempt reconnection if not manually disconnected (FR-104)
+      if (wasConnected && this.autoReconnect && !this.manualDisconnect) {
+        this.scheduleReconnect();
+      }
     };
   }
 
@@ -131,13 +156,8 @@ export default class RoomClient {
               `RoomClient: derived shared key with peer ${payload.peerId}. Total keys: ${this.sharedKeys.size}`
             );
 
-            // Check if all peers have exchanged keys
-            // When sharedKeys size matches the number of other peers, emit 'ready'
-            if (this.sharedKeys.size === this.peers.length) {
-              this.connectionState = 'ready';
-              console.log('RoomClient: E2EE ready - all keys exchanged');
-              this.emit('ready');
-            }
+            // Check ready state after key exchange
+            this.checkReadyState();
           }
           break;
         }
@@ -149,6 +169,11 @@ export default class RoomClient {
           // Add peer to local list
           if (payload.peer.id !== this.peerId) {
             this.peers.push(payload.peer);
+            
+            // Track expected peer count from initial batch (Fix #1: key exchange race)
+            if (!this.initialPeerCountReceived) {
+              this.expectedPeerCount++;
+            }
             
             // Re-broadcast our public key to the new peer
             if (this.keyPair && this.connectionState !== 'disconnected') {
@@ -172,6 +197,16 @@ export default class RoomClient {
           useRoomStore.getState().setPeers([...this.peers]);
 
           this.emit('peer-joined', payload.peer);
+          
+          // Mark initial peer count as received after first peer-joined
+          // (subsequent peer-joined events are for new arrivals)
+          if (!this.initialPeerCountReceived) {
+            // Use setTimeout to ensure all initial peer-joined messages are processed
+            setTimeout(() => {
+              this.initialPeerCountReceived = true;
+              this.checkReadyState();
+            }, 50);
+          }
           break;
         }
 
@@ -205,11 +240,16 @@ export default class RoomClient {
 
   /**
    * Sends a message via WebSocket, with optional encryption.
-   * If encrypt=true and connectionState='ready', encrypts payload with each peer's shared key.
+   * 
+   * NOTE: Multi-peer encryption deferred to M3. Current implementation only encrypts with first
+   * shared key (works for 2-peer rooms via ECDH symmetry). For >2 peers, choose one approach:
+   * 1. Per-peer encryption: add targetPeerId to protocol, route per-peer on server
+   * 2. Hybrid encryption: generate session key, encrypt it per-peer, encrypt bulk data once
+   * 3. Broadcast plaintext for non-sensitive data (presence/sync), per-peer for sensitive (chat)
    * 
    * @param type - Message type
    * @param payload - Message payload
-   * @param encrypt - Whether to encrypt the payload (default: true)
+   * @param encrypt - Whether to encrypt the payload (default: true, deferred to M3)
    */
   async sendMessage(type: string, payload: unknown, encrypt: boolean = true): Promise<void> {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
@@ -219,17 +259,13 @@ export default class RoomClient {
 
     let finalPayload = payload;
 
-    // Encrypt if requested and ready
+    // TODO(M3): Implement multi-peer encryption before shipping encrypted production messages.
+    // Encrypt if requested and ready (currently only works for 2-peer rooms)
     if (encrypt && this.connectionState === 'ready') {
-      // For simplicity, we'll encrypt the entire payload as JSON
-      // In production, you might want to encrypt per-peer
       const payloadJson = JSON.stringify(payload);
       
-      // For broadcast messages, we need to encrypt for each peer
-      // This is a simplified version - a full implementation might handle this differently
       if (this.sharedKeys.size > 0) {
-        // Use the first shared key for now (in a real implementation, 
-        // you might want to send encrypted versions to each peer)
+        // Encrypt with first shared key (2-peer room compatible)
         const firstKey = this.sharedKeys.values().next().value;
         const encrypted = await encryptMessage(firstKey, payloadJson);
         finalPayload = encrypted;
@@ -288,8 +324,16 @@ export default class RoomClient {
 
   /**
    * Closes WebSocket connection and clears state.
+   * @param manual - If true, prevents automatic reconnection
    */
-  disconnect(): void {
+  disconnect(manual: boolean = true): void {
+    this.manualDisconnect = manual;
+    
+    if (this.reconnectTimeoutId) {
+      clearTimeout(this.reconnectTimeoutId);
+      this.reconnectTimeoutId = null;
+    }
+    
     if (this.ws) {
       this.ws.close();
       this.ws = null;
@@ -297,10 +341,65 @@ export default class RoomClient {
 
     this.sharedKeys.clear();
     this.peers = [];
+    this.expectedPeerCount = 0;
+    this.initialPeerCountReceived = false;
     this.connectionState = 'disconnected';
     this.keyPair = null;
 
     console.log('RoomClient: disconnected');
+  }
+
+  /**
+   * Schedules reconnection attempt with exponential back-off (FR-104).
+   * Retry delays: 1s, 2s, 4s, 8s, capped at 30s. Give up after 5 minutes.
+   */
+  private scheduleReconnect(): void {
+    // Initialize reconnection timer if not already started
+    if (this.reconnectStartTime === null) {
+      this.reconnectStartTime = Date.now();
+    }
+    
+    // Give up after 5 minutes
+    const elapsed = Date.now() - this.reconnectStartTime;
+    const fiveMinutes = 5 * 60 * 1000;
+    
+    if (elapsed > fiveMinutes) {
+      console.log('RoomClient: giving up reconnection after 5 minutes');
+      this.reconnectStartTime = null;
+      this.reconnectAttempts = 0;
+      return;
+    }
+    
+    // Calculate delay with exponential back-off, capped at 30s
+    const delay = Math.min(Math.pow(2, this.reconnectAttempts) * 1000, 30000);
+    
+    console.log(`RoomClient: scheduling reconnect attempt ${this.reconnectAttempts + 1} in ${delay}ms`);
+    
+    this.reconnectTimeoutId = setTimeout(() => {
+      this.reconnectAttempts++;
+      console.log(`RoomClient: attempting reconnect (attempt ${this.reconnectAttempts})`);
+      this.connect().catch(error => {
+        console.error('RoomClient: reconnect failed', error);
+      });
+    }, delay);
+  }
+
+  /**
+   * Checks if E2EE ready state should be signaled.
+   * Ready = all expected peer keys have been exchanged.
+   */
+  private checkReadyState(): void {
+    // Only check ready state after initial peer count is established
+    if (!this.initialPeerCountReceived) {
+      return;
+    }
+    
+    // Ready when we have shared keys with all expected peers
+    if (this.sharedKeys.size === this.expectedPeerCount && this.connectionState === 'connected') {
+      this.connectionState = 'ready';
+      console.log('RoomClient: E2EE ready - all keys exchanged');
+      this.emit('ready');
+    }
   }
 
   /**
