@@ -30,7 +30,9 @@ export default {
 async function handleRooms(req: Request, env: Env): Promise<Response> {
   if (req.method === 'POST') {
     const roomId = crypto.randomUUID();
-    return Response.json({ roomId }, { status: 201 });
+    const url = new URL(req.url);
+    const inviteUrl = `${url.origin}/room/${roomId}`;
+    return Response.json({ roomId, inviteUrl }, { status: 201 });
   }
   return new Response('Method Not Allowed', { status: 405 });
 }

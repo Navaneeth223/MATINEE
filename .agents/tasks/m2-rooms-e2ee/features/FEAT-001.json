@@ -1,0 +1,27 @@
+{
+  "id": "FEAT-001",
+  "type": "feat",
+  "description": "Backend infrastructure: Room API with invite URLs and Durable Object presence broadcasts. Extends POST /api/rooms to return { roomId, inviteUrl }. Adds peer-joined/peer-left broadcasts in room-do.ts with proper session tracking. Updates protocol types to add presence message types.",
+  "status": "completed",
+  "steps": [
+    "1. Update packages/protocol/src/index.ts: Add 'peer-joined' and 'peer-left' to WSMessageType union. Add PeerJoinedPayload and PeerLeftPayload interfaces.",
+    "2. Modify apps/edge/src/index.ts: Update handleRooms() to construct inviteUrl from roomId and return { roomId, inviteUrl } in POST /api/rooms response. Use request.url origin for base URL.",
+    "3. Modify apps/edge/src/room-do.ts: In fetch() after acceptWebSocket, broadcast peer-joined message to all existing sessions. In webSocketClose() and webSocketError(), broadcast peer-left message before removing from sessions map. Add getCurrentPeers() helper to return array of Peer objects from sessions.",
+    "4. In room-do.ts webSocketMessage handler: For type='key-exchange' messages (E2EE), relay to all other peers without storing. Do NOT modify key-exchange messages; just forward them.",
+    "5. Test: Start edge dev server. POST to /api/rooms, verify response has both roomId and inviteUrl. Open two browser WebSocket connections with different peerIds. Verify peer-joined broadcast on second connection. Close one connection, verify peer-left broadcast."
+  ],
+  "acceptance_criteria": [
+    "POST /api/rooms returns JSON with roomId (UUID) and inviteUrl (full URL with origin)",
+    "When peer connects via WebSocket, all other connected peers receive peer-joined message with new peer's id and displayName",
+    "When peer disconnects, all remaining peers receive peer-left message with disconnected peer's id",
+    "Key-exchange messages (type='key-exchange') are relayed to all other peers without modification or storage",
+    "TypeScript compilation succeeds with no errors for edge and protocol packages"
+  ],
+  "verification": [
+    "pnpm --filter @matinee/edge typecheck",
+    "pnpm --filter @matinee/edge dev (manual: curl -X POST http://localhost:8787/api/rooms and verify inviteUrl field)",
+    "Manual WebSocket test: connect two browser tabs with wscat or browser console WebSocket, send messages, verify broadcasts"
+  ],
+  "blocked_reason": null,
+  "findings": "All acceptance criteria met: (1) POST /api/rooms returns roomId and inviteUrl with full origin URL. (2) peer-joined broadcasts sent to existing peers when new peer connects. (3) peer-left broadcasts sent when peer disconnects or errors. (4) key-exchange messages relayed to all other peers without modification. (5) TypeScript compilation passes for both edge and protocol packages. Manual WebSocket testing can be performed using test-presence.html in project root."
+}

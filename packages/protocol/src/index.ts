@@ -1,11 +1,19 @@
 // WebSocket messages
-export type WSMessageType = 'join' | 'leave' | 'sync' | 'chat' | 'ice' | 'signal' | 'ping' | 'pong';
+export type WSMessageType = 'join' | 'leave' | 'sync' | 'chat' | 'ice' | 'signal' | 'ping' | 'pong' | 'peer-joined' | 'peer-left' | 'key-exchange';
 
 export interface WSMessage {
   type: WSMessageType;
   roomId: string;
   peerId: string;
   payload?: unknown;
+}
+
+export interface PeerJoinedPayload {
+  peer: Peer;
+}
+
+export interface PeerLeftPayload {
+  peerId: string;
 }
 
 // Room state

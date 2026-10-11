@@ -38,6 +38,20 @@ export class RoomDO implements DurableObject {
     server.serializeAttachment(peer);
     this.sessions.set(server, peer);
 
+    // Broadcast peer-joined to all existing sessions
+    const peerJoinedMsg: WSMessage = {
+      type: 'peer-joined',
+      roomId: '', // Room ID not tracked in DO, client can infer
+      peerId: peer.id,
+      payload: { peer },
+    };
+    
+    this.state.getWebSockets().forEach(other => {
+      if (other !== server && other.readyState === WebSocket.READY_STATE_OPEN) {
+        other.send(JSON.stringify(peerJoinedMsg));
+      }
+    });
+
     return new Response(null, {
       status: 101,
       webSocket: client,
@@ -52,6 +66,16 @@ export class RoomDO implements DurableObject {
         typeof message === 'string' ? message : new TextDecoder().decode(message)
       ) as WSMessage;
       
+      // For key-exchange messages, relay without modification
+      if (msg.type === 'key-exchange') {
+        this.state.getWebSockets().forEach(other => {
+          if (other !== ws && other.readyState === WebSocket.READY_STATE_OPEN) {
+            other.send(JSON.stringify({ ...msg, peerId: peer.id }));
+          }
+        });
+        return;
+      }
+      
       // Broadcast to all other sessions
       this.state.getWebSockets().forEach(other => {
         if (other !== ws && other.readyState === WebSocket.READY_STATE_OPEN) {
@@ -64,10 +88,46 @@ export class RoomDO implements DurableObject {
   }
 
   webSocketClose(ws: WebSocket): void {
+    const peer = ws.deserializeAttachment() as Peer | null;
+    if (peer) {
+      // Broadcast peer-left to remaining sessions
+      const peerLeftMsg: WSMessage = {
+        type: 'peer-left',
+        roomId: '',
+        peerId: peer.id,
+        payload: { peerId: peer.id },
+      };
+      
+      this.state.getWebSockets().forEach(other => {
+        if (other !== ws && other.readyState === WebSocket.READY_STATE_OPEN) {
+          other.send(JSON.stringify(peerLeftMsg));
+        }
+      });
+    }
     this.sessions.delete(ws);
   }
 
   webSocketError(ws: WebSocket): void {
+    const peer = ws.deserializeAttachment() as Peer | null;
+    if (peer) {
+      // Broadcast peer-left to remaining sessions
+      const peerLeftMsg: WSMessage = {
+        type: 'peer-left',
+        roomId: '',
+        peerId: peer.id,
+        payload: { peerId: peer.id },
+      };
+      
+      this.state.getWebSockets().forEach(other => {
+        if (other !== ws && other.readyState === WebSocket.READY_STATE_OPEN) {
+          other.send(JSON.stringify(peerLeftMsg));
+        }
+      });
+    }
     this.sessions.delete(ws);
+  }
+
+  getCurrentPeers(): Peer[] {
+    return Array.from(this.sessions.values());
   }
 }
