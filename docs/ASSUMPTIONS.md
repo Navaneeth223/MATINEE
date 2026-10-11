@@ -5,13 +5,27 @@
 
 | ID | Assumption | Reason chosen | How to detect if wrong | Cost if wrong |
 |----|-----------|--------------|------------------------|---------------|
-| A01 | Owner device: Windows laptop (Chrome), Android phone (Chrome) | Prompt default; blanks left unfilled | Owner reports a bug specific to another browser | Low — we test Chrome P0 anyway |
-| A02 | Partner device: iPhone Safari + laptop Chrome (unknown) | Prompt default | Partner reports incompatibility | Medium — iOS Safari has quirks; we mitigate by default |
-| A03 | Partner country: unknown; assume <= 300 ms RTT, home Wi-Fi >= 10 Mbps upload | Prompt default | Sync quality poor; doctor reports high RTT | Medium — sync engine handles up to 400 ms RTT gracefully |
-| A04 | Both viewers will use their own local film files (Mode A default) | Owner confirmed explicitly | Owner requests streaming mode | Low — Modes B/C are built but not default |
+| A01 | Owner device: Windows laptop + PC (Chrome/Edge); plays films in VLC | CR-001 2026-10-10 | Owner reports a bug specific to another browser | Low — we test Chrome/Edge P0 anyway |
+| A02 | Partner device: MacBook (Safari or Chrome); probably does NOT have the film file | CR-001 2026-10-10 | Partner reports she has file locally | Low — Mode B (From Me) is our main mode now |
+| A03 | Partner country: unknown; assume <= 300 ms RTT; owner's upload speed unknown (to be measured) | CR-001 2026-10-10 | Sync quality poor; doctor reports high RTT | Medium — sync engine handles up to 400 ms RTT gracefully |
+| A04 | Mode B (From Me) is the MUST-have primary mode; Together mode after M5 | CR-001 2026-10-10: partner likely doesn't have file | Owner confirms partner has file locally | High — Mode B moves to M3; core feature |
 | A05 | Owner will create free Cloudflare + TMDB accounts and a free Gemini API key | Owner confirmed ("yes, guide me") | Owner declines a step | Low — we provide step-by-step guide and card-free fallbacks |
 | A06 | App name: "Matinee"; tone: warm, quiet, cinematic | Prompt default | Owner requests a rename | Zero — rename is a 5-minute config change |
 | A07 | "Fingerprint" = file hash (section 8.4). STT runs only when section 9.4 routing finds no good existing subtitles. | Owner correction 2026-10-08 | n/a — correction is definitive | n/a |
 | A08 | The Cloudflare edge server routes sealed E2EE envelopes only; it never stores or decrypts movie content or chat | Owner correction 2026-10-08 | n/a — correction is definitive | n/a |
 | A09 | UI language at launch: English (default), Malayalam, Thai | Spec section 15.1 | Owner requests additional language | Medium — i18n scaffold is extensible |
 | A10 | Reference date for research: 2026-10-08 (today) | Prompt section 7.0 rule 4 | Any source older than 12 months for free tiers is re-verified | Low — we re-verify before relying on any fact |
+
+---
+
+## A12 — Mode B (From Me) is Primary Mode (CR-001)
+
+**CR-001 2026-10-10:** Partner probably does NOT have the film file. Mode B (host captures and streams video via HTMLMediaElement.captureStream or getDisplayMedia) is now the MUST-have primary mode, moved to M3. Together mode (both have file) is deferred to after M5 as a Should-priority feature. This changes the core product flow: owner hosts the film from their device (Windows laptop/PC running VLC or browser player), partner watches on MacBook (Safari or Chrome).
+
+## A13 — Voice/Video Relay Deferred to M5
+
+Voice and video calling are out of scope for M1–M4. The relay provider decision (Cloudflare Realtime vs Metered vs other) is deferred to M5. At M5 the team must verify: (a) Metered's current free-tier limits and whether signup requires a payment card, (b) who operates the relay, and (c) whether card-free signup is possible. Until that verification is complete, no TURN configuration is committed.
+
+## A14 — MacBook Partner Web-Only (CR-001)
+
+Partner uses MacBook with Safari or Chrome via web browser only. PWA "Add to Dock" for persistence on Safari/Chrome. No paid accounts, no native Mac app. MacBook Safari must be tested on a real device (added to real-device checklist).

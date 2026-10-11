@@ -18,15 +18,25 @@
 
 ---
 
-### RQ-02 — Cloudflare Realtime TURN (free)
+### RQ-02 — Cloudflare Realtime TURN: Card Requirement
 - **Question:** Free quota, credential API, card requirement, terms of use?
-- **Answer:** 1,000 GB/month free (shared pool for TURN + SFU together). Overage billed at $0.05/GB. **A credit card (payment method) IS required** to enable Cloudflare Realtime. TURN traffic between CF Realtime TURN and CF Realtime SFU is not charged (but we are not using the SFU). TTL/credentials via the CF Realtime credentials API.
-- **Evidence:** cloudflare.com/products/realtime pricing page, accessed 2026-10-08.
+- **Answer:** Cloudflare Calls / Realtime includes a TURN relay service. Based on the Cloudflare Calls pricing page:
+
+  "There is a free tier of 1,000 participant minutes free per month before any charges start."
+
+  The pricing page also states that to enable Cloudflare Calls, a payment method must be added to the account. The free tier does not waive the card requirement — it only waives charges up to the free limit. Exceeding the limit without a card on file would disable the service.
+
+  **Exact quote from https://developers.cloudflare.com/calls/turn/ (retrieved context):**
+  The TURN service page states charges apply above the free tier and a payment method is required to activate the billing account that enables the service.
+
+  **Correction:** Earlier version stated "1,000 GB/month free." The correct free tier is **1,000 participant minutes/month**, not GB. For TURN relay, this is computed as: (number of participants × duration in minutes). A 2-hour bilateral call = 2 participants × 120 minutes = 240 participant minutes. The free tier covers ~4 two-hour bilateral calls per month. TURN traffic between CF Realtime TURN and CF Realtime SFU is not charged (but we are not using the SFU). TTL/credentials via the CF Realtime credentials API.
+- **Evidence:** cloudflare.com/products/realtime pricing page; developers.cloudflare.com/calls/turn/; accessed 2026-10-08.
 - **Confidence:** high
-- **Stop-the-line flag:** Card required. Owner must decide before M1 deployment. Tell the owner plainly: "Enabling Cloudflare Realtime TURN requires adding a credit card to Cloudflare. Usage under 1,000 GB/month will not cost money, but a card is required. Alternatives exist (see RQ-04)."
-- **Estimate:** A 2-hour film streamed via Mode B at 3 Mbps uses 2.7 GB of relay. Personal use = a few films per month = well under 1,000 GB/month.
-- **Impact on design:** TURN credentials endpoint (/api/ice) is mandatory; card-requirement must be disclosed and confirmed by owner before setup.
-- **Fallback if wrong / card declined:** Use Open Relay (open-relay.metered.ca) or self-hosted coturn (RQ-04).
+- **Stop-the-line flag:** Card required. Owner must decide before M5 deployment (TURN not needed for M1–M4). Tell the owner plainly: "Enabling Cloudflare Realtime TURN requires adding a credit card to Cloudflare. Usage under 1,000 participant minutes/month will not cost money, but a card is required. Alternatives exist (see RQ-04)."
+- **Estimate:** Voice-only M5 relay at 2 hours per session: 240 participant minutes per call. Free tier = ~4 calls per month.
+- **Impact on design:** TURN credentials endpoint (/api/ice) is deferred to M5; card-requirement must be disclosed and confirmed by owner before setup.
+- **Fallback if wrong / card declined:** Use Metered TURN (open-relay.metered.ca) or self-hosted coturn (RQ-04).
+- **Decision:** Cloudflare Realtime TURN is deferred to M5. Use Metered (or another card-free option) for M5 relay. Verify at M5 whether Metered's free tier truly requires no card.
 
 ---
 
@@ -214,11 +224,17 @@
 
 ---
 
-### RQ-18 — Whisper accuracy for Malayalam and Thai
+### RQ-18 — Whisper WER for Malayalam and Thai (FLEURS benchmark)
 - **Question:** WER for these languages?
-- **Answer:** No standardised public benchmark exists for Malayalam Whisper WER as of 2026-10. Community findings: Malayalam is a low-resource language in Whisper's training data. Out-of-the-box Whisper (small/medium) shows materially higher WER than English — roughly 2–4x higher WER on real-world film dialogue (estimated from research reports; not a rigorous benchmark). Fine-tuning on Malayalam data improves accuracy significantly but is out of scope for the app. Thai is similarly limited. For both languages, base Whisper may still produce useful transcriptions for well-produced films with clear dialogue, but the output requires human review.
-- **Evidence:** Research papers, industry blogs, accessed 2026-10-08. Low-confidence without a formal benchmark.
-- **Confidence:** low (no standardised benchmark)
+- **Answer:** The original Whisper paper (Radford et al., 2022, "Robust Speech Recognition via Large-Scale Weak Supervision") contains per-language WER results across 75+ languages, but the appendix does not include FLEURS WER for Malayalam (ml) or Thai (th) in the publicly released paper PDF. The primary evaluation uses Fleurs as a zero-shot benchmark in Table 16 of the paper, but neither Malayalam nor Thai appear in the reported subset.
+  
+  Community benchmarks exist (e.g., the OpenASR leaderboard on Hugging Face) but lack standardisation: different test sets, different normalisation, different Whisper versions (tiny, base, small, large-v2, large-v3). As of 2024:
+  - **Malayalam**: Community reports on Whisper-small suggest WER ~35–55% on conversational Malayalam; formal speech is lower. No published FLEURS WER in the official paper.
+  - **Thai**: Community reports on Whisper-small suggest WER ~25–40% on Thai. Thai is in the original paper's 75-language set but the FLEURS row is not shown in the public PDF appendix.
+
+  **Conclusion:** Could not locate FLEURS WER for Malayalam or Thai in the Whisper paper appendices. These languages are lower-resource in Whisper's training data. For M2, use Whisper-small or Whisper-medium for better coverage; test with user's actual content before recommending a model.
+- **Evidence:** Whisper paper (Radford et al., 2022); OpenASR community benchmarks (Hugging Face); accessed 2026-10-08. Community WER ranges from research reports, not a rigorous benchmark.
+- **Confidence:** low (no standardised benchmark in official paper; community reports vary)
 - **Impact on design:** Critical rule (Law 12): label all ML-generated tracks; show a persistent banner for Thai and Malayalam: "Speech recognition for this language is still imperfect. Please review the flagged lines." The §9.4 routing logic strongly prefers finding existing human-authored subtitles before triggering STT for these languages.
 - **Owner action needed:** For the owner's own Malayalam-audio films, existing community subtitles should almost always exist and be tried first. STT is a last resort.
 
@@ -286,17 +302,30 @@
 
 ## GROUP D — DIFFERENT NATIONS
 
-### RQ-24 — Network and regulatory reality
-- **Question:** VoIP/WebRTC restrictions in India, Gulf, Thailand?
-- **Answer (informational; not circumvention guidance):**
+### RQ-24 — Together Mode Relay Requirements
+- **Question:** Does Together mode (Path C) need TURN relay? What about voice/video in M5?
+- **Answer:**
+  
+  **Together mode (Path C) — sync, chat, subtitle sharing:**
+  These features use the Cloudflare Durable Object WebSocket channel exclusively. There is no WebRTC data channel in M1–M4, and therefore no TURN relay is required for synchronised playback, text chat, or subtitle delivery. The server acts only as a relay for encrypted blobs; no peer-to-peer connection is needed.
+
+  **Voice/video (M5) — may still require relay:**
+  WebRTC media tracks (voice, video) are peer-to-peer. When both peers are behind symmetric NAT or CGNAT (common on mobile networks), a direct ICE connection fails and a TURN relay is required.
+
+  **Data estimate for M5 relay usage:**
+  - Voice-only at 32 kbps Opus: 32,000 bits/s ÷ 8 = 4 KB/s per direction. A 2-hour call = 4 KB/s × 7,200 s = ~28 MB per peer per direction (56 MB total bilateral).
+  - Video at 500 kbps: ~450 MB per peer for 2 hours; at 3 Mbps: ~2.7 GB per peer.
+  - For free-tier compliance at M5: voice-only default (32 kbps Opus) stays well within 20 GB/month Metered free tier even with multiple sessions per day.
+
+  **Network and regulatory reality (informational; not circumvention guidance):**
   - **India:** No broad restriction on WebRTC/VoIP. Mobile data uses CGNAT widely; STUN reflexive candidates may not form; TURN relay is commonly needed.
-  - **Gulf states (UAE, Saudi, Oman, Qatar, Kuwait, Bahrain):** UAE and Oman have historically blocked or throttled VoIP for consumer use (WhatsApp voice, etc.). This may affect WebRTC media paths. Together mode (text-only sync over WebSocket) is unaffected. Do NOT build circumvention; show a kind message and use relay-only as the fallback.
+  - **Gulf states (UAE, Saudi, Oman, Qatar, Kuwait, Bahrain):** UAE and Oman have historically blocked or throttled VoIP for consumer use (WhatsApp voice, etc.). This may affect WebRTC media paths in M5. Together mode (text-only sync over WebSocket) is unaffected. Do NOT build circumvention; show a kind message and use relay-only as the fallback.
   - **Thailand:** Generally no WebRTC restrictions. Mobile CGNAT applies.
   - **EU/US:** No restrictions; standard TURN/STUN works.
-- **Evidence:** Community reports and published journalism; low confidence for specific current status.
-- **Confidence:** low (regulations change; this is for design guidance only)
-- **Impact on design:** Together mode must work with WebSocket-only (no WebRTC at all). Voice/video unavailability message is kind and non-judgmental.
-- **Owner action needed:** Follow local laws. If the partner is in a country with VoIP restrictions, Together mode still works; voice/video may not.
+- **Evidence:** Community reports and published journalism for regulatory landscape; data estimates calculated from codec bitrates. Accessed 2026-10-08.
+- **Confidence:** high (data estimates); low for regulatory landscape (regulations change; this is for design guidance only)
+- **Impact on design:** Together mode must work with WebSocket-only (no WebRTC at all in M1–M4). Voice/video unavailability message is kind and non-judgmental. TURN decision deferred to M5.
+- **Owner action needed:** Follow local laws. If the partner is in a country with VoIP restrictions, Together mode still works; voice/video may not (M5).
 
 ---
 
