@@ -1,4 +1,5 @@
 import type { EncryptedEnvelope, SealedMessage, AAD, SignedPublicKey } from '@matinee/protocol';
+import { BIP39_WORDS } from './bip39-words';
 
 /**
  * Generates an ECDH P-256 key pair for E2EE key exchange.
@@ -517,3 +518,85 @@ export class ReplayTracker {
   }
 }
 
+
+/**
+ * Generates SAS (Short Authentication String) from BOTH session public keys + roomId.
+ * Per §11.3: Must derive from both public keys to detect key swapping attacks.
+ * A secret-only SAS cannot detect if an attacker swapped one peer's key.
+ * 
+ * @param localPublicKeyJwk - Local peer's ECDH public key in JWK format
+ * @param remotePublicKeyJwk - Remote peer's ECDH public key in JWK format
+ * @param roomId - Room identifier
+ * @returns Promise resolving to array of 4 BIP39 words
+ */
+export export async function generateSAS(
+  localPublicKeyJwk: JsonWebKey,
+  remotePublicKeyJwk: JsonWebKey,
+  roomId: string
+): Promise<string[]> {
+  // Canonicalize JWKs (sort keys alphabetically to ensure consistent order)
+  const localJson = JSON.stringify(localPublicKeyJwk, Object.keys(localPublicKeyJwk).sort());
+  const remoteJson = JSON.stringify(remotePublicKeyJwk, Object.keys(remotePublicKeyJwk).sort());
+  
+  // Sort by lexical order to ensure both peers compute same hash
+  const [first, second] = [localJson, remoteJson].sort();
+  
+  const encoder = new TextEncoder();
+  const roomIdBytes = encoder.encode(roomId);
+  const firstBytes = encoder.encode(first);
+  const secondBytes = encoder.encode(second);
+  
+  // Concatenate: roomId || firstKey || secondKey
+  const combined = new Uint8Array(
+    roomIdBytes.length + firstBytes.length + secondBytes.length
+  );
+  combined.set(roomIdBytes, 0);
+  combined.set(firstBytes, roomIdBytes.length);
+  combined.set(secondBytes, roomIdBytes.length + firstBytes.length);
+  
+  // Hash with SHA-256
+  const hashBuffer = await crypto.subtle.digest('SHA-256', combined);
+  const hash = new Uint8Array(hashBuffer);
+  
+  // Extract 4 x 11-bit indexes from hash (44 bits total)
+  const indexes: number[] = [];
+  
+  // Index 0: bits 0-10
+  indexes.push(((hash[0] << 3) | (hash[1] >> 5)) & 0x7FF);
+  
+  // Index 1: bits 11-21
+  indexes.push(((hash[1] << 6) | (hash[2] >> 2)) & 0x7FF);
+  
+  // Index 2: bits 22-32
+  indexes.push(((hash[2] << 9) | (hash[3] << 1) | (hash[4] >> 7)) & 0x7FF);
+  
+  // Index 3: bits 33-43
+  indexes.push(((hash[4] << 4) | (hash[5] >> 4)) & 0x7FF);
+  
+  // Map to BIP39 words
+  const wordlist = BIP39_WORDS;
+  
+  if (wordlist.length < 2048) {
+    throw new Error('BIP39 wordlist incomplete - need full 2048 words');
+  }
+  
+  return indexes.map(i => wordlist[i % 2048]);
+}
+
+
+/**
+ * Generates an ECDH P-256 key pair for session-level forward secrecy.
+ * Per §11.3: each peer generates ephemeral keys per session.
+ * 
+ * @returns Promise resolving to CryptoKeyPair
+ */
+export async function generateECDHKeyPair(): Promise<CryptoKeyPair> {
+  return await crypto.subtle.generateKey(
+    {
+      name: 'ECDH',
+      namedCurve: 'P-256',
+    },
+    true,  // extractable (need to export public key)
+    ['deriveKey', 'deriveBits']
+  );
+}

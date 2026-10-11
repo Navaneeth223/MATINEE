@@ -1,0 +1,31 @@
+{
+  "project_type": "pnpm monorepo: Cloudflare Workers + Durable Objects (edge), React + Vite (web), TypeScript packages",
+  "language": "TypeScript 5.9.3",
+  "build_system": "pnpm workspaces + turbo. Build: 'pnpm build' (runs tsc in protocol, vite build in web, wrangler deploy in edge)",
+  "test_framework": "NONE currently. Must set up: vitest for unit tests (protocol crypto), Playwright 1.64.0 for E2E",
+  "build_command": "pnpm build",
+  "test_command": "Must create: pnpm test (runs vitest + playwright)",
+  "verification_instructions": "1. Build protocol: cd packages/protocol && pnpm build. 2. Run unit tests: pnpm test (once vitest configured). 3. Run E2E: pnpm exec playwright test (once configured). 4. Manual: dev server at localhost:5173, create room, join from incognito window",
+  "snapshot_or_generated_files": "packages/protocol/dist/*.js and *.d.ts are build outputs (gitignored). No snapshot files.",
+  "environment_constraints": "Cloudflare Workers runtime has no Node.js APIs. Use Web Crypto API only. Durable Objects support hibernation (acceptWebSocket with tags). WebSocket in browser, no ws library.",
+  "contribution_requirements": "Per docs/BRIEF.md §3 (12 Laws): client-side secret gen (Law 3), universal encryption (Law 4), 2-peer cap (Law 5), host auth (Law 6), 12h expiry (Law 7), replay rejection (Law 8). Record every design decision as ADR in docs/adr/. Stop if credit card required (Law 2). Route is /r/:roomId not /room/:roomId.",
+  "key_patterns": "ECDH P-256 for key exchange, AES-GCM-256 for encryption, HKDF-SHA-256 for key derivation, HMAC-SHA-256 for authentication. WebSocket relay pattern: Durable Object stores peers, relays encrypted envelopes only. RoomClient emits 'ready' after key exchange. Zustand for client state.",
+  "relevant_files": [
+    "docs/BRIEF.md",
+    "docs/STATE.md",
+    "docs/adr/ADR-001-sas-4-words-from-2048-list.md",
+    "docs/adr/ADR-002-knock-timeout-120s-with-retry.md",
+    "docs/adr/ADR-003-room-lock-toggle-persists-until-unlocked.md",
+    "docs/adr/ADR-004-keepalive-30s-hibernation-auto-response.md",
+    "docs/adr/ADR-005-m2b-scope-sas-and-lock-in-qr-share-to-m4.md",
+    "packages/protocol/src/index.ts",
+    "apps/web/src/lib/crypto.ts",
+    "apps/web/src/lib/room-client.ts",
+    "apps/web/src/pages/FoyerPage.tsx",
+    "apps/web/src/pages/RoomPage.tsx",
+    "apps/edge/src/index.ts",
+    "apps/edge/src/room-do.ts",
+    "apps/web/src/App.tsx"
+  ],
+  "directory_structure": "Root: docs/ (BRIEF.md, STATE.md, adr/), apps/edge/src/ (Worker + Durable Object), apps/web/src/ (React app: lib/, pages/, stores/), packages/ (protocol, sync-engine, subtitle-*, ui-tokens). Tests will be: packages/protocol/src/__tests__/, e2e/ (root)"
+}

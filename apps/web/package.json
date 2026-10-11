@@ -7,27 +7,29 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "typecheck": "tsc --noEmit",
+    "test": "vitest run",
     "preview": "vite preview",
     "clean": "node -e \"import('fs').then(fs => fs.rmSync('dist', {recursive: true, force: true}))\""
   },
   "dependencies": {
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "react-router-dom": "^7.5.1",
-    "zustand": "^5.0.3",
-    "i18next": "^26.4.3",
-    "react-i18next": "^15.3.2",
     "@matinee/protocol": "workspace:*",
-    "@matinee/sync-engine": "workspace:*",
     "@matinee/subtitle-core": "workspace:*",
     "@matinee/subtitle-pipeline": "workspace:*",
-    "@matinee/ui-tokens": "workspace:*"
+    "@matinee/sync-engine": "workspace:*",
+    "@matinee/ui-tokens": "workspace:*",
+    "i18next": "^26.4.3",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-i18next": "^15.3.2",
+    "react-router-dom": "^7.5.1",
+    "zustand": "^5.0.3"
   },
   "devDependencies": {
+    "@types/react": "^19.0.10",
+    "@types/react-dom": "^19.0.3",
+    "@vitejs/plugin-react": "^4.4.2",
     "typescript": "5.9.3",
     "vite": "^6.1.5",
-    "@vitejs/plugin-react": "^4.4.2",
-    "@types/react": "^19.0.10",
-    "@types/react-dom": "^19.0.3"
+    "vitest": "^5.0.3"
   }
 }

@@ -9,7 +9,7 @@ export default function App() {
   return (
     <Routes>
       <Route path="/" element={<FoyerPage />} />
-      <Route path="/room/:roomId" element={<RoomPage />} />
+      <Route path="/r/:roomId" element={<RoomPage />} />
       <Route path="/theatre/:roomId" element={<TheatrePage />} />
       <Route path="/about" element={<AboutPage />} />
       <Route path="*" element={<NotFoundPage />} />

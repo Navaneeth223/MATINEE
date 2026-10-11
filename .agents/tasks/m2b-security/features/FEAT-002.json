@@ -1,0 +1,39 @@
+{
+  "id": "FEAT-002",
+  "type": "feat",
+  "description": "Client-side secret generation, URL fragment handling, universal seal/open in RoomClient, and SAS display. FoyerPage generates 16-byte roomSecret client-side and builds invite URL with #k= fragment. RoomPage reads fragment, derives K_enc/K_auth, strips fragment from history. RoomClient uses seal/open for ALL messages with session ID + counter, tracks replay state, signs ECDH public keys with K_auth, mixes K_enc into session key. SAS words displayed after key exchange. Depends on FEAT-001 (protocol types).",
+  "status": "pending",
+  "steps": [
+    "Read context.json and apps/web/src/pages/FoyerPage.tsx for existing room creation flow",
+    "Modify apps/web/src/pages/FoyerPage.tsx handleCreateRoom: after receiving roomId from POST /api/rooms, generate roomSecret = crypto.getRandomValues(new Uint8Array(16)), encode as base64url (btoa + replace /\\+/g, '-' + replace /\\//g, '_' + replace /=+$/, ''), build inviteUrl = ${origin}/r/${roomId}#k=${secret}, navigate to /r/${roomId} (NOT /room/${roomId}) with state {roomSecret}.",
+    "Update apps/web/src/App.tsx: change route from /room/:roomId to /r/:roomId for RoomPage.",
+    "Modify apps/web/src/pages/RoomPage.tsx useEffect: read roomSecret from navigation state OR extract from window.location.hash (k= param), decode base64url to Uint8Array, call history.replaceState({}, '', window.location.pathname + window.location.search) to strip fragment, pass roomSecret to RoomClient constructor.",
+    "Modify apps/web/src/lib/room-client.ts constructor: add roomSecret: Uint8Array param, call deriveRoomKeys(roomSecret) to get kEnc and kAuth, store as instance fields. Add sessionId = crypto.getRandomValues(new Uint8Array(4)), counter = 0n, replayTracker = new ReplayTracker() as instance fields.",
+    "In room-client.ts connect(): change key-exchange message to SignedPublicKey format: sign publicKeyJwk with kAuth, send {type: 'key-exchange', peerId, payload: {publicKey, signature}}.",
+    "In room-client.ts handleMessage key-exchange case: verify signature with kAuth before importing peer public key. On failure, close connection with error. On success, derive ECDH shared secret, mix with kEnc to get session key, store in sharedKeys map.",
+    "In room-client.ts sendMessage: replace existing encryption logic with seal(sessionKey, payload, {from: peerId, to, type, timestamp: Date.now()}, sessionId, counter++). Always seal (remove encrypt param default). Send SealedMessage as WSMessage payload.",
+    "In room-client.ts handleMessage for non-system messages: call open(sessionKey, message.payload as SealedMessage), extract counter, check replayTracker.reject(message.peerId, counter), reject if replay, else update tracker and emit 'message' with decrypted payload.",
+    "Add deriveSAS(roomSecret: Uint8Array) to crypto.ts: HKDF 44 bits from roomSecret with info='sas', map to 4 BIP39 words (hardcode minimal 2048-word list or import from npm bip39 if available), return array of 4 strings.",
+    "In room-client.ts checkReadyState: after setting connectionState = 'ready', derive SAS = deriveSAS(roomSecret), emit 'sas', sas) event.",
+    "In RoomPage.tsx: subscribe to 'sas' event, store SAS words in state, display below connection status as 'Security Code: word1 word2 word3 word4' with instruction 'Verify these words match your partner (speak them aloud)'.",
+    "Record ADR-006: client-side secret generation with URL fragment, rationale (server never sees secret, fragment not sent to server, stripped from history after read)."
+  ],
+  "acceptance_criteria": [
+    "FoyerPage generates roomSecret client-side and builds /r/:roomId#k=... URL",
+    "RoomPage extracts secret from fragment and strips it from browser history",
+    "RoomClient derives K_enc/K_auth from roomSecret using HKDF",
+    "RoomClient signs ECDH public keys with K_auth and verifies peer signatures",
+    "RoomClient seals ALL messages with nonce = sessionId||counter and AAD",
+    "RoomClient rejects replay attacks (duplicate/out-of-order counters)",
+    "SAS 4 words displayed on both screens after key exchange",
+    "TypeScript typecheck passes in apps/web",
+    "Dev server runs: pnpm dev, create room, copy invite, open in incognito, both show SAS"
+  ],
+  "verification": [
+    "cd apps/web && pnpm run typecheck — no errors",
+    "pnpm dev — dev server starts on localhost:5173",
+    "Manual test: create room, copy invite URL (contains #k=...), paste in incognito window, both windows show same 4 SAS words, connection status 'ready', peers list shows both"
+  ],
+  "blocked_reason": null,
+  "findings": ""
+}

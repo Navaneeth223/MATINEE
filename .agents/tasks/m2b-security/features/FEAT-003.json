@@ -1,0 +1,44 @@
+{
+  "id": "FEAT-003",
+  "type": "feat",
+  "description": "Server-side 2-peer cap, host token, knock/admit/deny admission control, room lock, and 12-hour expiry with hibernation keepalives. Durable Object hard-caps at 2 peers, generates hostToken for first peer, queues unadmitted sockets (receives nothing until admitted), enforces knock timeout (120s), supports room lock toggle from host, uses 12-hour alarm with hibernation auto-response for keepalives. Depends on FEAT-001 (SealedMessage protocol) and FEAT-002 (client seal/open).",
+  "status": "pending",
+  "steps": [
+    "Read context.json, apps/edge/src/room-do.ts, and docs/BRIEF.md §12.2 for admission control spec",
+    "Add RoomState type to protocol: 'WAITING' | 'FULL' | 'LOCKED'. Add AdmittedPeer type: {peer: Peer, hostToken?: string, admitted: boolean, knockedAt?: number}. Add message types to WSMessageType: 'knock', 'admit', 'deny', 'admitted', 'lock', 'unlock', 'keepalive', 'error'.",
+    "Modify apps/edge/src/room-do.ts: replace sessions Map<WebSocket, Peer> with admittedPeers Map<WebSocket, AdmittedPeer>. Add roomState: RoomState = 'WAITING', hostSocket: WebSocket | null = null. Change 30-minute expiry to 12 hours (12 * 60 * 60 * 1000).",
+    "In room-do.ts fetch (WebSocket upgrade): count current admitted peers (admittedPeers.size where admitted=true). If >= 2, return Response with status 403 and body {type: 'error', reason: 'room_full'}, do NOT acceptWebSocket. If roomState = 'LOCKED', return 403 {type: 'error', reason: 'room_locked'}.",
+    "On first peer (admittedPeers.size = 0): generate hostToken = await crypto.subtle.digest('SHA-256', crypto.getRandomValues(new Uint8Array(32))), encode as base64, store hostSocket = server, set admitted = true, send {type: 'admitted', hostToken: base64token} as first message. Mark as host.",
+    "On second peer: set admitted = false, knockedAt = Date.now(), do NOT send peer-joined to host yet. Wait for knock message from guest.",
+    "In webSocketMessage: if message.type = 'knock' and sender is unadmitted, relay to hostSocket ONLY as {type: 'knock', peerId: peer.id, displayName: peer.displayName}. Set 120s timeout: if no admit/deny, auto-deny and send {type: 'denied', reason: 'timeout'}.",
+    "If host sends {type: 'admit', targetPeerId}, find guest socket, set admitted = true, clear timeout, send {type: 'admitted'}, broadcast peer-joined to both peers, proceed with key exchange relay.",
+    "If host sends {type: 'deny', targetPeerId}, find guest socket, send {type: 'denied', reason: 'host_denied'}, close socket.",
+    "For admitted=false sockets, relay NOTHING except knock/admit/deny/admitted/denied messages. Filter all other messages.",
+    "If host sends {type: 'lock'}, set roomState = 'LOCKED', store in DO storage. If {type: 'unlock'}, set roomState = 'WAITING'.",
+    "In webSocketMessage for 'keepalive': update this.lastActivityAt = Date.now(), reschedule alarm. Use state.acceptWebSocket(server, ['keepalive']) in fetch to enable hibernation auto-response (ADR-004).",
+    "Modify room-client.ts: after connect, send {type: 'knock', displayName} if not host (detect by absence of hostToken in 'admitted' message). Subscribe to 'knock' events, emit to UI. Add sendAdmit(peerId), sendDeny(peerId), sendLock(), sendUnlock() methods.",
+    "Add keepalive interval to room-client.ts: setInterval(() => this.sendMessage('keepalive', {timestamp: Date.now()}), 30_000) on connect, clear on disconnect.",
+    "Update RoomPage.tsx: if 'knock' event received, show modal with guest displayName and Admit/Deny buttons. Add Lock Room toggle button (only visible if isHost). Show 'Room Locked' badge if locked.",
+    "Record ADR-007: admission control implementation with knock/admit flow, 120s timeout, room lock."
+  ],
+  "acceptance_criteria": [
+    "Third peer connection rejected with 'room_full' error",
+    "First peer receives hostToken in 'admitted' message",
+    "Second peer must knock, waits for host admit/deny",
+    "Unadmitted sockets receive no peer-joined or other messages until admitted",
+    "Knock timeout auto-denies after 120 seconds",
+    "Host can lock room, locked room rejects all new connections",
+    "12-hour expiry alarm scheduled, reschedules on keepalive activity",
+    "Keepalives sent every 30s from client, hibernation auto-response enabled",
+    "TypeScript typecheck passes in apps/edge",
+    "Manual test: 3 browser windows, third rejected, first admits second"
+  ],
+  "verification": [
+    "cd apps/edge && pnpm run typecheck — no errors",
+    "cd apps/edge && pnpm run build — builds successfully",
+    "pnpm dev — both edge and web dev servers start",
+    "Manual test: create room (window 1, gets hostToken), join from window 2 (knocks, waits), window 1 sees knock notification and admits, window 2 enters room. Open window 3, attempt join, receives 'room_full' error immediately."
+  ],
+  "blocked_reason": null,
+  "findings": ""
+}

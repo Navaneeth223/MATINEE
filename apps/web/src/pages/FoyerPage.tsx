@@ -25,11 +25,26 @@ export default function FoyerPage() {
       const data = await response.json();
       const { roomId } = data;
 
-      if (roomId) {
-        navigate(`/room/${roomId}`);
-      } else {
+      if (!roomId) {
         throw new Error('No roomId returned from API');
       }
+
+      // Generate 16-byte room secret client-side (Law 3)
+      const roomSecret = crypto.getRandomValues(new Uint8Array(16));
+      
+      // Encode as base64url (RFC 4648 §5)
+      const base64 = btoa(String.fromCharCode(...roomSecret));
+      const base64url = base64
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=+$/, '');
+
+      // Build invite URL with fragment (server never sees secret)
+      const origin = window.location.origin;
+      const inviteUrl = `${origin}/r/${roomId}#k=${base64url}`;
+
+      // Navigate to room page with secret in state
+      navigate(`/r/${roomId}`, { state: { roomSecret } });
     } catch (error) {
       console.error('Error creating room:', error);
       alert('Failed to create room. Please try again.');
