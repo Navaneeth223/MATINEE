@@ -5,6 +5,8 @@
 **Gate A:** APPROVED with conditions  
 **M2 status:** NOT COMPLETE - critical security gaps found
 
+**📖 Session Start:** At the start of every session read `docs/BRIEF.md` and `STATE.md`; open the relevant AGENT_PROMPT.md sections.
+
 ## Owner Answers
 - **Partner browser:** Safari (assumed)
 - **My upload speed:** ___ Mbps (TBD)
