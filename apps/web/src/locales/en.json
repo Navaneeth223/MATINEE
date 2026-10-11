@@ -1,4 +1,14 @@
 {
   "app_name": "Matinee",
-  "tagline": "Watch together."
+  "tagline": "Watch together.",
+  "create_room": "Create Room",
+  "room_id": "Room ID",
+  "invite_url": "Invite URL",
+  "copy_invite": "Copy",
+  "peers_in_room": "Peers in Room",
+  "connection_status": "Connection Status",
+  "status_disconnected": "Disconnected",
+  "status_connecting": "Connecting...",
+  "status_connected": "Connected",
+  "status_ready": "Ready"
 }
