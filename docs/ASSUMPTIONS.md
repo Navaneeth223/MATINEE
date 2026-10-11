@@ -18,9 +18,15 @@
 
 ---
 
-## A12 — Mode B (From Me) is Primary Mode (CR-001)
+## A12 — Mode B Transport (REVISED 2026-10-10)
 
-**CR-001 2026-10-10:** Partner probably does NOT have the film file. Mode B (host captures and streams video via HTMLMediaElement.captureStream or getDisplayMedia) is now the MUST-have primary mode, moved to M3. Together mode (both have file) is deferred to after M5 as a Should-priority feature. This changes the core product flow: owner hosts the film from their device (Windows laptop/PC running VLC or browser player), partner watches on MacBook (Safari or Chrome).
+**Assumption:** Mode B (From Me) uses WebRTC peer-to-peer for video/audio media. WebSocket handles signaling only (SDP offer/answer, ICE candidate exchange). No TURN relay for M1-M2.
+
+**Previous text STRUCK:** "WebSocket-only M1-M4" — removed per owner direction.
+
+**Relay plan:** Two-network WebRTC test runs at the start of M3. TURN relay decision made then.
+
+**Safari constraint:** Safari cannot send (HTMLMediaElement.captureStream() unavailable). Safari users can receive only. UI shows "Use Chrome or Firefox to send."
 
 ## A13 — Voice/Video Relay Deferred to M5
 
@@ -29,3 +35,4 @@ Voice and video calling are out of scope for M1–M4. The relay provider decisio
 ## A14 — MacBook Partner Web-Only (CR-001)
 
 Partner uses MacBook with Safari or Chrome via web browser only. PWA "Add to Dock" for persistence on Safari/Chrome. No paid accounts, no native Mac app. MacBook Safari must be tested on a real device (added to real-device checklist).
+

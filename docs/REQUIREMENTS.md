@@ -84,6 +84,7 @@
 | FR-207 | Cinema+ Quality Preset | Maintain source resolution, detect upload speed, cap bitrate at ~70% of measured upload, 1.5-3s playout delay, H.264 when Safari viewer. | P0 | M3 |
 | FR-208 | Upload Speed Detection | Doctor measures upload speed and recommends bitrate preset. Honest limit shown: "near-source, not lossless". | P0 | M3 |
 | FR-209 | Safari Compatibility | When partner uses Safari, force H.264 codec (not VP9). | P0 | M3 |
+| FR-210 | Symmetric Role Switching (CR-002) | Either peer may act as the video source (sender) for Mode B. The sender and receiver have the same playback controls: volume, pause, seek, scrub, plus/minus 10 s. Role switching happens at session start (not mid-session in v1). Safari constraint: Safari cannot send. If the user's browser is Safari, the UI disables the Send option and shows: "Use Chrome or Firefox to send. Safari can only receive." | P0 | M3 |
 
 ### Mode C: Screen Share Fallback (FR-250s)
 
@@ -168,6 +169,19 @@
 |----|-------|-------------|----------|-----------|
 | FR-801 | EN/TH/ML UI | All UI strings available in English, Thai, and Malayalam. | P0 | M3 |
 | FR-802 | Font Loading | Noto Sans Thai and Noto Sans Malayalam loaded from Google Fonts or bundled. | P0 | M3 |
+
+### Watch-along Mode (FR-950s)
+
+| ID | Title | Description | Priority | Milestone |
+|----|-------|-------------|----------|-----------|
+| FR-950 | Watch-along Mode (CR-002) | Each person plays their own copy of a streaming service (Netflix, etc.) independently. Matinee provides voice/video overlay, a shared 3-2-1 countdown start, and a pause-together alert. Matinee does NOT capture, relay, or synchronise the video stream. | P2 (Should) | M8/M9 |
+| FR-951 | Independent Playback | Each participant plays content on their own device/subscription independently. | P2 | M8/M9 |
+| FR-952 | Shared 3-2-1 Countdown | Both clients display a countdown and start playing simultaneously on 1. | P2 | M8/M9 |
+| FR-953 | Pause Together Alert | If one person pauses, the other sees a notification. No enforcement; no DRM bypass. | P2 | M8/M9 |
+| FR-954 | Voice/Video Overlay | Face bubbles, voice, and mixer features work during Watch-along. | P2 | M8/M9 |
+| FR-955 | No Remote Control in Watch-along | Each person controls their own player. No remote control commands sent. | P2 | M8/M9 |
+
+**Constraint:** Each person must have their own subscription. No DRM bypass. No video capture or relay of streaming content.
 
 ### Together Mode (Deferred) (FR-900s)
 
@@ -262,17 +276,26 @@
 
 ---
 
-## 6. Milestone Mapping (Revised per CR-001)
+## 6. Milestone Mapping (Revised per CR-001 and CR-002)
+
+**Milestone Plan (revised per CR-001 and CR-002):**
 
 | Milestone | Goal | Key Deliverables | Free-Tier Constraint |
 |-----------|------|-----------------|---------------------|
-| M1 | Room + WebSocket infrastructure | FR-101–104, basic WebSocket relay, text chat | Cloudflare Workers + DO free tier; no card |
-| M2 | Subtitle generation | FR-501–507, Whisper in-browser (EN only) | Cloudflare free; Whisper runs in browser |
-| M3 | **Mode B (From Me) + Translation** | FR-201–209 (video streaming), FR-204–206 (remote control), FR-301 (movie volume), FR-601–604 (translation), FR-801–802 (i18n) | Gemini BYOK; no platform cost |
-| M4 | E2EE + Companion Device | FR-701–703 (E2EE), FR-105 (companion device simple version), FR-251–254 (Mode C fallback) | Cloudflare DO storage; no additional cost |
-| M5 | Voice/Video + Full Audio Mixer | FR-302–308 (audio mixer), FR-350–357 (voice clarity), FR-401–409 (face bubbles) | TURN relay provider TBD; card requirement verified before this milestone |
+| **M1** | **Foundation** | Monorepo scaffold, CI, dev tooling. Status: Done. | No costs |
+| **M2** | **Rooms + E2EE + Presence + Invite** | Room creation, E2EE key exchange, presence indicators, invite links. E2EE before any messaging. | Cloudflare Workers + DO free tier; no card |
+| **M3** | **From Me Core + Remote Control** | Mode B WebRTC video share, receiver remote control (pause/seek/±10s), two-network STUN test, TURN decision. Primary mode; symmetric roles (FR-210). | Gemini BYOK; no platform cost |
+| **M4** | **Theatre UI + Mixer + Face Bubbles** | Full Theatre layout, audio Mixer (movie/voice/mic, boost to 300%, ducking), draggable and resizable face bubbles. | Cloudflare DO storage; no additional cost |
+| **M5** | **Voice/Video + Companion Device + Doctor** | Voice clarity settings, companion device (QR join), Format Doctor, Cinema+ preset. TURN relay confirmed here if needed. | TURN relay provider TBD; card requirement verified before this milestone |
+| **M6** | **Subtitles v1** | Load and display SRT/VTT files, subtitle styling, position controls. Display only, no generation. | No costs |
+| **M7** | **Subtitle Generation (EN/TH/ML)** | Whisper-based subtitle generation for English, Thai, Malayalam. | Cloudflare free; Whisper runs in browser |
+| **M8** | **Together Mode** | Both-have-file mode, local sync without relay, shared playback. No relay needed. | Cloudflare DO WebSocket; no relay cost |
+| **M9** | **Share Screen + VLC Fallback** | getDisplayMedia screen share, VLC audio capture tips, Format Doctor Mode C guidance. | No costs |
+| **M10** | **Mobile/PWA Polish** | PWA manifest, Safari Add to Dock, mobile layout, responsive Theatre UI. | No costs |
+| **M11** | **Security Hardening** | Penetration review, E2EE audit, rate limiting, CSP headers. | No costs |
+| **M12** | **Release** | Final QA, documentation, public launch. | No costs |
 
-**Note:** Together mode (FR-901–904) deferred to **after M5** as Should-priority.
+**Watch-along mode (FR-950-955) targets M8 or M9 based on M7 velocity.**
 
 ---
 
@@ -293,6 +316,7 @@ Explicitly **not** in scope for any milestone:
 - Accessibility beyond WCAG 2.2 AA basics
 - Video quality beyond "near-source" (not lossless encoding)
 - Multiple companion devices (limit: 1 companion per seat)
+- Netflix-specific browser sync extension (logged as v1.1 candidate; not a v1 requirement)
 
 ---
 

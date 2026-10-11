@@ -1,3 +1,5 @@
+⚠️ **WARNING INVALID:** Node.js test; browser test required (Playwright acceptable). These results do not reflect browser API behaviour. Must be rerun in real Chrome (or via Playwright) to get valid browser API measurements.
+
 # S3 — In-Browser Whisper Inference
 
 **Status:** COMPLETE

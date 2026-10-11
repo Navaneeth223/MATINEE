@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>S10 — Windows Volume Passthrough Test</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #111;
+      color: #ddd;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      padding: 2rem;
+      line-height: 1.6;
+    }
+    h1 { font-size: 1.75rem; margin-bottom: 1rem; color: #fff; }
+    h2 { font-size: 1.25rem; margin-top: 2rem; margin-bottom: 0.75rem; color: #eee; }
+    ol { margin-left: 1.5rem; margin-bottom: 1.5rem; }
+    ol li { margin-bottom: 0.5rem; }
+    button {
+      background: #1e90ff;
+      color: #fff;
+      border: none;
+      padding: 0.75rem 1.5rem;
+      font-size: 1rem;
+      border-radius: 0.5rem;
+      cursor: pointer;
+      margin-bottom: 1.5rem;
+    }
+    button:hover { background: #1c7ed6; }
+    button:disabled { background: #555; cursor: not-allowed; }
+    .meter-container {
+      width: 100%;
+      max-width: 600px;
+      height: 60px;
+      background: #222;
+      border: 2px solid #444;
+      border-radius: 0.5rem;
+      overflow: hidden;
+      position: relative;
+      margin-bottom: 1rem;
+    }
+    .meter-bar {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #0f0 0%, #ff0 70%, #f00 100%);
+      transition: width 0.05s ease-out;
+    }
+    .meter-label {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 1.5rem;
+      font-weight: bold;
+      color: #fff;
+      text-shadow: 0 0 3px #000, 0 0 6px #000;
+      pointer-events: none;
+    }
+    .result-box {
+      background: #222;
+      border: 1px solid #444;
+      border-radius: 0.5rem;
+      padding: 1rem;
+      margin-top: 1.5rem;
+    }
+    .result-box p { margin-bottom: 0.5rem; }
+    .result-box p:last-child { margin-bottom: 0; }
+  </style>
+</head>
+<body>
+  <h1>S10 — Windows Volume Passthrough Test</h1>
+  
+  <h2>Instructions</h2>
+  <ol>
+    <li>Play a film in VLC on this computer</li>
+    <li>Click <strong>Start Capture</strong> below</li>
+    <li>In the browser prompt, select <strong>Entire Screen</strong> and enable <strong>Share system audio</strong></li>
+    <li>Lower the Windows volume slider (system tray)</li>
+    <li>Watch whether the meter level drops</li>
+  </ol>
+
+  <button id="startBtn">Start Capture</button>
+
+  <div class="meter-container">
+    <div class="meter-bar" id="meterBar"></div>
+    <div class="meter-label" id="meterLabel">silence</div>
+  </div>
+
+  <div class="result-box">
+    <h2>Result Interpretation</h2>
+    <p><strong>If the meter drops when you lower Windows volume:</strong> The captured audio IS affected by the system volume control. Partner will hear volume changes when you adjust your speaker slider. This means Mode C requires you to keep Windows volume at 100% and control loudness via the Matinee mixer only.</p>
+    <p><strong>If the meter stays constant when you lower Windows volume:</strong> The captured audio is NOT affected (it captures pre-volume-control). Partner will always hear full volume regardless of your local speaker setting. You can adjust your headphone volume without affecting what they hear.</p>
+  </div>
+
+  <script>
+    const startBtn = document.getElementById('startBtn');
+    const meterBar = document.getElementById('meterBar');
+    const meterLabel = document.getElementById('meterLabel');
+
+    let audioContext = null;
+    let analyser = null;
+    let dataArray = null;
+
+    startBtn.addEventListener('click', async () => {
+      try {
+        startBtn.disabled = true;
+        startBtn.textContent = 'Capturing...';
+
+        // Request screen capture with audio
+        const stream = await navigator.mediaDevices.getDisplayMedia({
+          video: false,
+          audio: {
+            echoCancellation: false,
+            noiseSuppression: false,
+            autoGainControl: false
+          }
+        });
+
+        // Set up audio analysis
+        audioContext = new AudioContext();
+        const source = audioContext.createMediaStreamSource(stream);
+        analyser = audioContext.createAnalyser();
+        analyser.fftSize = 2048;
+        analyser.smoothingTimeConstant = 0.3;
+
+        source.connect(analyser);
+
+        const bufferLength = analyser.fftSize;
+        dataArray = new Float32Array(bufferLength);
+
+        // Start animation loop
+        updateMeter();
+
+        startBtn.textContent = 'Capturing (close tab to stop)';
+      } catch (err) {
+        console.error('Capture failed:', err);
+        startBtn.disabled = false;
+        startBtn.textContent = 'Start Capture';
+        alert('Screen capture failed. Make sure you grant permission and select "Share system audio".');
+      }
+    });
+
+    function updateMeter() {
+      if (!analyser || !dataArray) return;
+
+      requestAnimationFrame(updateMeter);
+
+      // Get time-domain data
+      analyser.getFloatTimeDomainData(dataArray);
+
+      // Calculate RMS
+      let sum = 0;
+      for (let i = 0; i < dataArray.length; i++) {
+        sum += dataArray[i] * dataArray[i];
+      }
+      const rms = Math.sqrt(sum / dataArray.length);
+
+      // Convert to dBFS (0 dBFS = full scale)
+      let dbFS;
+      if (rms < 0.00001) {
+        dbFS = -Infinity;
+      } else {
+        dbFS = 20 * Math.log10(rms);
+      }
+
+      // Clamp to -60 to 0 dBFS range for display
+      const clampedDB = Math.max(-60, Math.min(0, dbFS));
+      const percent = ((clampedDB + 60) / 60) * 100;
+
+      // Update UI
+      meterBar.style.width = percent + '%';
+      
+      if (dbFS === -Infinity || rms < 0.00001) {
+        meterLabel.textContent = 'silence';
+      } else {
+        meterLabel.textContent = dbFS.toFixed(1) + ' dBFS';
+      }
+    }
+  </script>
+</body>
+</html>

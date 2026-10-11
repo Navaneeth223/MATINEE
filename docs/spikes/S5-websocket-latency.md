@@ -1,3 +1,5 @@
+⚠️ **WARNING INVALID:** Wrong test — should be captureStream to a second browser, not WebSocket RTT. Must be rerun: use HTMLMediaElement.captureStream() piped to a second browser context via WebRTC.
+
 # S5 — WebSocket Sync Protocol Latency
 
 **Status:** COMPLETE

@@ -53,15 +53,13 @@
 
 ---
 
-### RQ-04 — Free TURN alternatives
-- **Question:** Alternative TURN sources, card requirements?
-- **Answer:**
-  - **open-relay.metered.ca:** Community TURN; free tier available; no credit card required; bandwidth-limited; suitable for low-volume personal use. Quality/uptime not guaranteed.
-  - **Self-hosted coturn on a free VM:** Google Cloud free tier (1 e2-micro) or Oracle Always-Free (2 Ampere VMs, 200 GB bandwidth). Oracle requires a credit card for sign-up (billing protection); Google free tier also requires a card. Coturn itself is Apache-licensed. Self-hosting gives full control but requires maintenance.
-- **Evidence:** Metered TURN public docs; Oracle/GCP free tier pages (card requirement from community reports — not primary-source verified for Oracle).
-- **Confidence:** medium
-- **Impact on design:** open-relay.metered.ca is the card-free TURN fallback if the owner chooses not to add a card to Cloudflare. Self-hosting is an option the owner can approve at Gate A or later.
-- **Owner action needed:** At Gate A, owner chooses: (a) add card to Cloudflare Realtime [best] or (b) use Metered TURN [no card, lower quality].
+### RQ-04 — Metered TURN Server (Updated 2026-10-10)
+- **Status:** RESOLVED — no card required for free trial.
+- **Pricing page quote (metered.ca, accessed 2026-10-10):** "FREE TRIAL: Free: 500 MB trial - No credit card required"
+- **Current limits:** Free trial: 500 MB data transfer (CORRECTED from 20 GB — previous figure was wrong). Growth plan: $99/month for 150 GB.
+- **Who runs it:** Metered Video (metered.ca).
+- **Note:** 500 MB is approximately 18 hours of voice-only relay at 32 kbps Opus (about 28 MB per 2-hour call). Sufficient for testing; production will need paid tier.
+- **Action:** TURN relay decision deferred to M3. Two-network WebRTC STUN test runs in M3.
 
 ---
 
@@ -240,6 +238,18 @@
 
 ---
 
+### RQ-18 — Whisper FLEURS WER — Malayalam and Thai (Updated 2026-10-10)
+- **Status:** PARTIALLY RESOLVED — figures not located in paper appendix.
+- **Finding:** The original Whisper paper (Radford et al., 2022, "Robust Speech Recognition via Large-Scale Weak Supervision") references Appendix D for FLEURS benchmark results. Malayalam (ISO 639-3: mal) and Thai (ISO 639-3: tha) per-language WER figures for specific model sizes were not located in publicly accessible appendix tables at time of research.
+- **Sources checked:**
+  - openai/whisper GitHub README (accessed 2026-10-10) — includes a FLEURS performance chart but does not break down results by language and model size in tabular form.
+  - Radford et al. 2022 paper PDF — Appendix D references FLEURS evaluation but language-level rows for mal/tha were not found in the version reviewed.
+- **Community benchmarks:** HuggingFace model cards for whisper-small/medium/large-v2 on FLEURS suggest large-v2 achieves competitive WER on Thai (~10-20% range) but Malayalam WER is higher due to limited training data. Exact figures vary by dataset split and normalisation.
+- **Action:** Use large-v2 as default for Thai and Malayalam subtitle generation (M7). Validate empirically on sample audio during M7 spike.
+- **Confidence:** low (no standardised benchmark in official paper; community reports vary)
+
+---
+
 ### RQ-19 — Free cloud STT accelerators
 - **Question:** Groq, Cloudflare Workers AI — free limits, privacy?
 - **Answer:**
@@ -297,6 +307,17 @@
 - **Evidence:** themoviedb.org/terms, tmdb API docs, accessed 2026-10-08.
 - **Confidence:** high
 - **Impact on design:** TMDB proxy in the Worker hides the API key; responses cached 24 h (details) and 7 days (posters). Attribution text and logo on About page.
+
+---
+
+### RQ-24 — Mode B Transport — WebRTC vs WebSocket Clarification (Updated 2026-10-10)
+- **Status:** RESOLVED — WebRTC for media, WebSocket for signaling only.
+- **Clarification:** Mode B (From Me) uses a WebRTC peer connection for video/audio streaming. WebSocket is used only for signaling (SDP offer/answer exchange, ICE candidates). WebSocket does NOT carry media.
+- **Previous incorrect assumption removed:** "WebSocket-only M1-M4" — struck from ASSUMPTIONS.md A12.
+- **STUN:** Free STUN servers (e.g. stun:stun.l.google.com:19302) used for ICE candidate gathering. No TURN relay for M1-M2.
+- **TURN relay decision:** Deferred to start of M3. Two-network Mode B test runs early in M3.
+- **Safari note:** Safari supports WebRTC receiving but does NOT support HTMLMediaElement.captureStream(). Safari users can receive Mode B video but cannot be the sender. UI must show: "Use Chrome to send. Safari can only receive."
+- **Confidence:** high
 
 ---
 

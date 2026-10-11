@@ -1,48 +1,58 @@
-# Gate A Report
+# Gate A Report — Matinee
 
-Date: 2025-01-10  Path: C (Together mode)  Status: PASSED
+**Date:** 2026-10-10  
+**Status:** READY FOR REVIEW — owner decides pass/fail
+
+---
 
 ## Key Decisions
-- [x] Path C selected: sync/chat/subtitles via WebSocket; no TURN for M1–M4
-- [x] Voice/video (M5) deferred; relay provider to be verified card-free
-- [x] Cloudflare Realtime TURN deferred (card required); Metered added to ledger
-- [x] Whisper FLEURS WER for ML/TH not in paper; community benchmarks cited
-- [x] Together mode confirmed: no TURN relay needed for sync, chat, or subtitles
 
-## Requirements Status
-- [x] REQUIREMENTS.md: O1–O11, FR-xxx (100s–800s), NFR-01–15, Acceptance Tests, Milestones M1–M5, Out of Scope
-- [x] ASSUMPTIONS.md: A12 (Path C chosen), A13 (M5 relay deferred)
+- **Mode B (From Me)** is primary mode (M3); symmetric roles (FR-210)
+- **WebRTC + STUN** for M1-M2; no relay; TURN decision at M3 start
+- **E2EE at M2** before any messaging
+- **Watch-along mode** added (FR-950-955) targeting M8/M9
+- **Netflix extension** logged as v1.1 candidate; not v1 requirement
 
-## Spikes Status
-- [x] S1 BLOCKED: requires deployed Cloudflare DO (post-M1)
-- [x] S2 DONE: audio extraction API availability verified; WebCodecs browser-only; ffmpeg.wasm viable fallback
-- [x] S3 DONE: Whisper-tiny WASM ~3–5 min/10 min audio; WebGPU ~60–90 s; @huggingface/transformers confirmed
-- [x] S4 BLOCKED: requires Gemini API key (BYOK at M3)
-- [x] S5 DONE: WebSocket RTT measured/estimated; sync latency within NFR-02 target
-- [x] S6 DONE: Intl.Segmenter('th', word) verified in Node 20; Thai segmentation correct
-- [x] S7 DONE: Intl.Segmenter('ml', grapheme) verified; Malayalam conjuncts segment correctly
-- [x] S8 BLOCKED: requires iOS device (cross-device QA at M2)
+---
+
+## Requirements
+
+- **REQUIREMENTS.md** updated with CR-001 and CR-002
+- **Milestones:** M1 (Foundation, done) → M2 (Rooms+E2EE) → M3 (From Me+Remote Control) → M4 (Theatre UI+Mixer+Face Bubbles) → M5 (Voice/Video+Companion+Doctor) → M6 (Subtitles v1) → M7 (Subtitle Gen EN/TH/ML) → M8 (Together Mode) → M9 (Share Screen+VLC) → M10 (Mobile/PWA) → M11 (Security) → M12 (Release)
+
+---
+
+## Spikes
+
+| Spike | Status | Notes |
+|-------|--------|-------|
+| S1 | BLOCKED | Reason documented |
+| S2 | INVALID | Node.js test; browser test required |
+| S3 | INVALID | Node.js test; browser test required (Playwright acceptable) |
+| S4 | BLOCKED | Reason documented |
+| S5 | INVALID | Wrong test — should be captureStream to second browser, not WebSocket RTT |
+| S6 | INVALID | Node.js test; browser test required |
+| S7 | VALID | Results accepted |
+| S8 | BLOCKED | Reason documented |
+| S10 | CREATED | docs/spikes/s10.html — Windows volume passthrough test |
+
+---
 
 ## Research Corrections
-- [x] RQ-18: ML/TH FLEURS WER not in Whisper paper; community benchmarks cited
-- [x] RQ-24: Together mode = WebSocket only, no TURN; voice relay estimate added (28 MB/2-hr call)
-- [x] RQ-02: Cloudflare TURN requires card; deferred to M5; Metered added as alternative
 
-## §7.9 Checklist
-- [x] Path decision recorded (Path C, no TURN M1–M4)
-- [x] REQUIREMENTS.md written with FR/NFR/acceptance tests/milestones
-- [x] ASSUMPTIONS.md updated (A12, A13)
-- [x] Spike S2 (audio): DONE
-- [x] Spike S3 (Whisper): DONE
-- [x] Spike S5 (WebSocket latency): DONE
-- [x] Spike S6 (Thai segmenter): DONE
-- [x] Spike S7 (Malayalam rendering): DONE
-- [x] Spikes S1, S4, S8: BLOCKED with documented reasons
-- [x] RESEARCH.md corrected (RQ-02, RQ-18, RQ-24)
-- [x] FREE-TIER-LEDGER.md updated (Metered row; Cloudflare TURN deferred)
-- [x] Out-of-scope list in REQUIREMENTS.md
-- [x] No card required for M1–M4 (NFR-14)
+- **Metered TURN (RQ-04):** 500 MB free trial (corrected from 20 GB). No card required. Quote: "FREE TRIAL: Free: 500 MB trial - No credit card required" (metered.ca, accessed 2026-10-10). Sufficient for ~18 hours voice-only relay at 32 kbps Opus.
+- **Whisper FLEURS WER (RQ-18):** Malayalam and Thai WER not found in paper appendix. Use large-v2 for M7; validate empirically.
+- **WebRTC clarified (RQ-24):** Mode B uses WebRTC for media, WebSocket for signaling only. Previous "WebSocket-only M1-M4" assumption struck from ASSUMPTIONS.md A12.
 
-## Gate Status
+---
 
-GATE A: PASSED — all prerequisites met for M1 implementation start.
+## Owner Answers Pending
+
+- **Partner browser:** ___ (Safari or Chrome)
+- **My upload speed:** ___ Mbps
+
+---
+
+## Next
+
+Owner reviews and approves or rejects Gate A.
