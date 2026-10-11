@@ -149,6 +149,23 @@ export default class RoomClient {
           // Add peer to local list
           if (payload.peer.id !== this.peerId) {
             this.peers.push(payload.peer);
+            
+            // Re-broadcast our public key to the new peer
+            if (this.keyPair && this.connectionState !== 'disconnected') {
+              (async () => {
+                const publicKeyJwk = await exportPublicKey(this.keyPair!.publicKey);
+                const keyExchangeMessage: WSMessage = {
+                  type: 'key-exchange',
+                  roomId: this.roomId,
+                  peerId: this.peerId,
+                  payload: {
+                    peerId: this.peerId,
+                    publicKey: publicKeyJwk,
+                  } as KeyExchangeMessage,
+                };
+                this.ws?.send(JSON.stringify(keyExchangeMessage));
+              })();
+            }
           }
 
           // Update roomStore

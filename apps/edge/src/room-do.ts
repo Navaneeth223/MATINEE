@@ -38,6 +38,21 @@ export class RoomDO implements DurableObject {
     server.serializeAttachment(peer);
     this.sessions.set(server, peer);
 
+    // Send existing peers to the new peer
+    const existingPeers = Array.from(this.sessions.entries())
+      .filter(([ws]) => ws !== server)
+      .map(([, p]) => p);
+    
+    existingPeers.forEach(existingPeer => {
+      const existingPeerMsg: WSMessage = {
+        type: 'peer-joined',
+        roomId: '',
+        peerId: existingPeer.id,
+        payload: { peer: existingPeer },
+      };
+      server.send(JSON.stringify(existingPeerMsg));
+    });
+
     // Broadcast peer-joined to all existing sessions
     const peerJoinedMsg: WSMessage = {
       type: 'peer-joined',
@@ -47,7 +62,7 @@ export class RoomDO implements DurableObject {
     };
     
     this.state.getWebSockets().forEach(other => {
-      if (other !== server && other.readyState === WebSocket.READY_STATE_OPEN) {
+      if (other !== server && other.readyState === 1) { // 1 = OPEN
         other.send(JSON.stringify(peerJoinedMsg));
       }
     });
@@ -69,7 +84,7 @@ export class RoomDO implements DurableObject {
       // For key-exchange messages, relay without modification
       if (msg.type === 'key-exchange') {
         this.state.getWebSockets().forEach(other => {
-          if (other !== ws && other.readyState === WebSocket.READY_STATE_OPEN) {
+          if (other !== ws && other.readyState === 1) { // 1 = OPEN
             other.send(JSON.stringify({ ...msg, peerId: peer.id }));
           }
         });
@@ -78,7 +93,7 @@ export class RoomDO implements DurableObject {
       
       // Broadcast to all other sessions
       this.state.getWebSockets().forEach(other => {
-        if (other !== ws && other.readyState === WebSocket.READY_STATE_OPEN) {
+        if (other !== ws && other.readyState === 1) { // 1 = OPEN
           other.send(JSON.stringify({ ...msg, peerId: peer.id }));
         }
       });
@@ -99,7 +114,7 @@ export class RoomDO implements DurableObject {
       };
       
       this.state.getWebSockets().forEach(other => {
-        if (other !== ws && other.readyState === WebSocket.READY_STATE_OPEN) {
+        if (other !== ws && other.readyState === 1) { // 1 = OPEN
           other.send(JSON.stringify(peerLeftMsg));
         }
       });
@@ -119,7 +134,7 @@ export class RoomDO implements DurableObject {
       };
       
       this.state.getWebSockets().forEach(other => {
-        if (other !== ws && other.readyState === WebSocket.READY_STATE_OPEN) {
+        if (other !== ws && other.readyState === 1) { // 1 = OPEN
           other.send(JSON.stringify(peerLeftMsg));
         }
       });

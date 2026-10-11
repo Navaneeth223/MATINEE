@@ -1,0 +1,7 @@
+{
+  "task_id": "m2-rooms-e2ee",
+  "task_description": "Implement M2: Rooms + E2EE + Presence + Invite. Create room API with invite URLs, E2EE key exchange in Durable Object, crypto utilities, room client library, and waiting room UI.",
+  "status": "pending",
+  "feature_order": ["FEAT-001", "FEAT-002", "FEAT-003", "FEAT-004"],
+  "blocked_reason": null
+}

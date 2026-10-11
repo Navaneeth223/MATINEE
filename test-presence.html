@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Presence Test</title>
+  <style>
+    body { font-family: monospace; padding: 20px; }
+    #log { border: 1px solid #ccc; padding: 10px; height: 400px; overflow-y: auto; }
+    button { margin: 5px; padding: 10px; }
+    input { padding: 5px; margin: 5px; }
+  </style>
+</head>
+<body>
+  <h2>WebSocket Presence Test</h2>
+  <div>
+    <input type="text" id="roomId" placeholder="Room ID" style="width: 300px;">
+    <input type="text" id="peerId" placeholder="Peer ID (auto)" style="width: 150px;">
+    <input type="text" id="displayName" placeholder="Display Name" value="Tester">
+    <button onclick="connect()">Connect</button>
+    <button onclick="disconnect()">Disconnect</button>
+    <button onclick="sendKeyExchange()">Send Key Exchange</button>
+  </div>
+  <h3>Log:</h3>
+  <div id="log"></div>
+
+  <script>
+    let ws = null;
+    const logEl = document.getElementById('log');
+
+    function log(msg) {
+      const time = new Date().toLocaleTimeString();
+      logEl.innerHTML += `<div>[${time}] ${msg}</div>`;
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    function connect() {
+      const roomId = document.getElementById('roomId').value || crypto.randomUUID();
+      let peerId = document.getElementById('peerId').value;
+      if (!peerId) {
+        peerId = crypto.randomUUID();
+        document.getElementById('peerId').value = peerId;
+      }
+      const displayName = document.getElementById('displayName').value || 'Tester';
+      
+      document.getElementById('roomId').value = roomId;
+
+      const wsUrl = `ws://localhost:8787/ws/${roomId}?peerId=${peerId}&name=${encodeURIComponent(displayName)}`;
+      log(`Connecting to: ${wsUrl}`);
+
+      ws = new WebSocket(wsUrl);
+
+      ws.onopen = () => {
+        log('<strong>✅ Connected</strong>');
+      };
+
+      ws.onmessage = (event) => {
+        log(`📥 Received: ${event.data}`);
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg.type === 'peer-joined') {
+            log(`<strong>👋 Peer joined: ${msg.payload.peer.displayName} (${msg.payload.peer.id})</strong>`);
+          } else if (msg.type === 'peer-left') {
+            log(`<strong>👋 Peer left: ${msg.payload.peerId}</strong>`);
+          } else if (msg.type === 'key-exchange') {
+            log(`<strong>🔑 Key exchange from: ${msg.peerId}</strong>`);
+          }
+        } catch (e) {
+          log(`Error parsing message: ${e.message}`);
+        }
+      };
+
+      ws.onerror = (error) => {
+        log(`<strong>❌ Error: ${error}</strong>`);
+      };
+
+      ws.onclose = () => {
+        log('<strong>🔴 Disconnected</strong>');
+      };
+    }
+
+    function disconnect() {
+      if (ws) {
+        ws.close();
+        ws = null;
+      }
+    }
+
+    function sendKeyExchange() {
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        log('❌ Not connected');
+        return;
+      }
+
+      const msg = {
+        type: 'key-exchange',
+        roomId: document.getElementById('roomId').value,
+        peerId: document.getElementById('peerId').value,
+        payload: {
+          publicKey: { kty: 'RSA', n: 'test', e: 'AQAB' }
+        }
+      };
+
+      ws.send(JSON.stringify(msg));
+      log(`📤 Sent key-exchange message`);
+    }
+  </script>
+</body>
+</html>

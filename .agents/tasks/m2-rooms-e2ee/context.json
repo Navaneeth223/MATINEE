@@ -1,0 +1,29 @@
+{
+  "project_type": "pnpm monorepo with Cloudflare Workers (Durable Objects) + Vite/React 18 web app",
+  "language": "TypeScript 5.9.3",
+  "build_system": "pnpm workspaces + turbo for build orchestration. Wrangler for edge deployment. Vite for web bundling.",
+  "test_framework": "None detected yet. Manual verification via browser tabs for WebSocket connections.",
+  "build_command": "pnpm build",
+  "test_command": "pnpm typecheck (TypeScript only; no unit tests exist yet)",
+  "verification_instructions": "1. Run `pnpm --filter @matinee/edge dev` in one terminal (Cloudflare Worker on localhost:8787). 2. Run `pnpm --filter @matinee/web dev` in another terminal (Vite dev server on localhost:5173). 3. Open two browser tabs to test WebSocket connections and E2EE key exchange. 4. Verify room creation returns roomId + inviteUrl. 5. Verify peer-joined/peer-left broadcasts work. 6. Check browser console for E2EE logs.",
+  "snapshot_or_generated_files": null,
+  "environment_constraints": "Windows development environment. Cloudflare Workers uses wrangler dev with local Durable Objects. No hot module reload for edge worker (restart required). Web app has Vite HMR.",
+  "contribution_requirements": "Gate A approved with conditions. M2 must implement E2EE BEFORE any messaging (FR-701, FR-702, FR-703). Cloudflare free tier requires no payment card. All changes must maintain free-tier constraints per FREE-TIER-LEDGER.md.",
+  "key_patterns": "Zustand for state management (see stores/roomStore.ts). React Router v7 for routing. i18next for internationalization. Workspace protocol imports via @matinee/protocol. Web Audio API will be used in later milestones for mixer.",
+  "relevant_files": [
+    "apps/edge/src/index.ts",
+    "apps/edge/src/room-do.ts",
+    "apps/edge/wrangler.toml",
+    "apps/web/src/App.tsx",
+    "apps/web/src/pages/FoyerPage.tsx",
+    "apps/web/src/pages/TheatrePage.tsx",
+    "apps/web/src/stores/roomStore.ts",
+    "apps/web/src/lib/capabilities.ts",
+    "apps/web/src/lib/i18n.ts",
+    "packages/protocol/src/index.ts",
+    "docs/REQUIREMENTS.md",
+    "docs/FREE-TIER-LEDGER.md",
+    "STATE.md"
+  ],
+  "directory_structure": "apps/edge: Cloudflare Worker entry (index.ts) + Durable Object (room-do.ts). apps/web: React app with pages/, stores/, lib/, locales/, styles/. packages/protocol: Shared TypeScript types. packages/sync-engine, subtitle-core, subtitle-pipeline, ui-tokens: Other packages for later milestones."
+}
