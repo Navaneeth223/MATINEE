@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>S5: HTMLMediaElement.captureStream() Test</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      max-width: 1200px;
+      margin: 40px auto;
+      padding: 20px;
+      background: #0a0a0a;
+      color: #e0e0e0;
+    }
+    h1 { color: #60a5fa; }
+    .container {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+      margin-top: 20px;
+    }
+    .panel {
+      background: #1a1a1a;
+      padding: 20px;
+      border-radius: 8px;
+      border: 1px solid #333;
+    }
+    video {
+      width: 100%;
+      background: #000;
+      border-radius: 4px;
+      margin: 10px 0;
+    }
+    button {
+      background: #2563eb;
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 16px;
+      margin: 5px;
+    }
+    button:hover { background: #1d4ed8; }
+    button:disabled {
+      background: #374151;
+      cursor: not-allowed;
+    }
+    .controls { margin: 10px 0; }
+    .log {
+      background: #111;
+      padding: 10px;
+      border-radius: 4px;
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+      max-height: 200px;
+      overflow-y: auto;
+      margin-top: 10px;
+      border: 1px solid #333;
+    }
+    .log-entry {
+      margin: 2px 0;
+      padding: 2px;
+    }
+    .log-info { color: #60a5fa; }
+    .log-success { color: #10b981; }
+    .log-warn { color: #f59e0b; }
+    .log-error { color: #ef4444; }
+    .info {
+      background: #1e293b;
+      padding: 10px;
+      border-radius: 4px;
+      margin: 10px 0;
+      border-left: 4px solid #60a5fa;
+    }
+    input[type="file"] {
+      margin: 10px 0;
+      padding: 10px;
+      background: #1a1a1a;
+      border: 1px solid #333;
+      border-radius: 4px;
+      color: #e0e0e0;
+      width: 100%;
+    }
+  </style>
+</head>
+<body>
+  <h1>🎬 Spike S5: captureStream() Test</h1>
+  
+  <div class="info">
+    <strong>Purpose:</strong> Verify that HTMLMediaElement.captureStream() works in real Chrome browser
+    for capturing video from a local file and streaming it to another video element (simulating WebRTC transmission).
+  </div>
+
+  <div class="container">
+    <!-- Source Video Panel -->
+    <div class="panel">
+      <h2>📹 Source Video (Owner)</h2>
+      <input type="file" id="fileInput" accept="video/*">
+      <video id="sourceVideo" controls></video>
+      
+      <div class="controls">
+        <button id="captureBtn" disabled>▶️ Start Capture</button>
+        <button id="stopCaptureBtn" disabled>⏹️ Stop Capture</button>
+      </div>
+
+      <div id="sourceInfo" class="info" style="font-size: 12px; display: none;">
+        <div><strong>File:</strong> <span id="fileName"></span></div>
+        <div><strong>Duration:</strong> <span id="duration"></span></div>
+        <div><strong>Dimensions:</strong> <span id="dimensions"></span></div>
+      </div>
+    </div>
+
+    <!-- Destination Video Panel -->
+    <div class="panel">
+      <h2>📺 Captured Stream (Partner)</h2>
+      <video id="destVideo" autoplay playsinline></video>
+      
+      <div id="streamInfo" class="info" style="font-size: 12px; display: none;">
+        <div><strong>Video Track:</strong> <span id="videoTrackInfo"></span></div>
+        <div><strong>Audio Track:</strong> <span id="audioTrackInfo"></span></div>
+        <div><strong>Track Count:</strong> <span id="trackCount"></span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Test Log -->
+  <div class="panel">
+    <h3>📋 Test Log</h3>
+    <div id="log" class="log"></div>
+    <button onclick="clearLog()">Clear Log</button>
+    <button onclick="copyLog()">Copy Log to Clipboard</button>
+  </div>
+
+  <!-- Instructions -->
+  <div class="panel">
+    <h3>📝 Test Instructions</h3>
+    <ol>
+      <li>Select a local video file (MP4, WebM, or other browser-supported format)</li>
+      <li>Wait for the source video to load</li>
+      <li>Click "Start Capture" to begin capturing the stream</li>
+      <li>Observe the destination video playing the captured stream</li>
+      <li>Test playback controls on source video (play/pause/seek)</li>
+      <li>Verify destination video mirrors source behavior</li>
+      <li>Check console for any warnings or errors</li>
+      <li>Copy test log and save results to <code>S5-capturestream-results.md</code></li>
+    </ol>
+    <p><strong>Browser:</strong> <span id="browserInfo"></span></p>
+    <p><strong>User Agent:</strong> <code style="font-size: 10px; color: #9ca3af;" id="userAgent"></code></p>
+  </div>
+
+  <script>
+    // DOM elements
+    const fileInput = document.getElementById('fileInput');
+    const sourceVideo = document.getElementById('sourceVideo');
+    const destVideo = document.getElementById('destVideo');
+    const captureBtn = document.getElementById('captureBtn');
+    const stopCaptureBtn = document.getElementById('stopCaptureBtn');
+    const logDiv = document.getElementById('log');
+
+    // State
+    let capturedStream = null;
+    let startTime = null;
+
+    // Logging
+    function log(message, level = 'info') {
+      const timestamp = new Date().toISOString().substr(11, 12);
+      const entry = document.createElement('div');
+      entry.className = `log-entry log-${level}`;
+      entry.textContent = `[${timestamp}] ${message}`;
+      logDiv.appendChild(entry);
+      logDiv.scrollTop = logDiv.scrollHeight;
+      console.log(`[${level.toUpperCase()}] ${message}`);
+    }
+
+    function clearLog() {
+      logDiv.innerHTML = '';
+    }
+
+    function copyLog() {
+      const text = logDiv.innerText;
+      navigator.clipboard.writeText(text).then(() => {
+        log('Log copied to clipboard', 'success');
+      }).catch(err => {
+        log('Failed to copy log: ' + err.message, 'error');
+      });
+    }
+
+    // Browser info
+    document.getElementById('browserInfo').textContent = navigator.userAgent.match(/(Chrome|Firefox|Safari|Edge)\/[\d.]+/)?.[0] || 'Unknown';
+    document.getElementById('userAgent').textContent = navigator.userAgent;
+
+    // File selection
+    fileInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      log(`Selected file: ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`, 'info');
+      
+      const url = URL.createObjectURL(file);
+      sourceVideo.src = url;
+      
+      document.getElementById('fileName').textContent = file.name;
+      document.getElementById('sourceInfo').style.display = 'block';
+      
+      sourceVideo.addEventListener('loadedmetadata', () => {
+        const duration = Math.floor(sourceVideo.duration);
+        const mins = Math.floor(duration / 60);
+        const secs = duration % 60;
+        document.getElementById('duration').textContent = `${mins}:${secs.toString().padStart(2, '0')}`;
+        document.getElementById('dimensions').textContent = `${sourceVideo.videoWidth}×${sourceVideo.videoHeight}`;
+        
+        log(`Video loaded: ${sourceVideo.videoWidth}×${sourceVideo.videoHeight}, ${duration}s`, 'success');
+        captureBtn.disabled = false;
+      });
+    });
+
+    // Capture stream
+    captureBtn.addEventListener('click', () => {
+      try {
+        if (!sourceVideo.captureStream) {
+          log('ERROR: captureStream() not supported in this browser!', 'error');
+          return;
+        }
+
+        startTime = performance.now();
+        capturedStream = sourceVideo.captureStream();
+        
+        log(`captureStream() called successfully`, 'success');
+        log(`Stream tracks: ${capturedStream.getTracks().length}`, 'info');
+        
+        const videoTracks = capturedStream.getVideoTracks();
+        const audioTracks = capturedStream.getAudioTracks();
+        
+        log(`Video tracks: ${videoTracks.length}`, videoTracks.length > 0 ? 'success' : 'warn');
+        log(`Audio tracks: ${audioTracks.length}`, audioTracks.length > 0 ? 'success' : 'warn');
+        
+        // Display track info
+        document.getElementById('trackCount').textContent = capturedStream.getTracks().length;
+        
+        if (videoTracks.length > 0) {
+          const vt = videoTracks[0];
+          document.getElementById('videoTrackInfo').textContent = 
+            `${vt.label || 'Video'} (${vt.readyState})`;
+          log(`Video track settings: ${JSON.stringify(vt.getSettings())}`, 'info');
+        } else {
+          document.getElementById('videoTrackInfo').textContent = 'None';
+        }
+        
+        if (audioTracks.length > 0) {
+          const at = audioTracks[0];
+          document.getElementById('audioTrackInfo').textContent = 
+            `${at.label || 'Audio'} (${at.readyState})`;
+        } else {
+          document.getElementById('audioTrackInfo').textContent = 'None';
+          log('WARNING: No audio track in captured stream', 'warn');
+        }
+        
+        document.getElementById('streamInfo').style.display = 'block';
+        
+        // Set destination video stream
+        destVideo.srcObject = capturedStream;
+        log('Stream assigned to destination video', 'success');
+        
+        // Listen for playback events
+        destVideo.onloadedmetadata = () => {
+          const loadTime = (performance.now() - startTime).toFixed(2);
+          log(`Destination video loaded metadata (${loadTime}ms)`, 'success');
+        };
+        
+        destVideo.onplay = () => {
+          log('Destination video started playing', 'success');
+        };
+        
+        captureBtn.disabled = true;
+        stopCaptureBtn.disabled = false;
+        
+        log('✅ Capture started successfully', 'success');
+        
+      } catch (err) {
+        log(`ERROR: ${err.message}`, 'error');
+        console.error(err);
+      }
+    });
+
+    // Stop capture
+    stopCaptureBtn.addEventListener('click', () => {
+      if (capturedStream) {
+        capturedStream.getTracks().forEach(track => {
+          track.stop();
+          log(`Stopped track: ${track.kind}`, 'info');
+        });
+        destVideo.srcObject = null;
+        log('Capture stopped', 'warn');
+        
+        captureBtn.disabled = false;
+        stopCaptureBtn.disabled = true;
+      }
+    });
+
+    // Monitor source video state changes
+    sourceVideo.addEventListener('play', () => {
+      log('Source video: PLAY', 'info');
+    });
+
+    sourceVideo.addEventListener('pause', () => {
+      log('Source video: PAUSE', 'info');
+    });
+
+    sourceVideo.addEventListener('seeking', () => {
+      log(`Source video: SEEKING to ${sourceVideo.currentTime.toFixed(2)}s`, 'info');
+    });
+
+    sourceVideo.addEventListener('seeked', () => {
+      log(`Source video: SEEKED to ${sourceVideo.currentTime.toFixed(2)}s`, 'success');
+    });
+
+    // Initial log
+    log('Test page loaded. Ready to test captureStream().', 'success');
+    log('Environment: ' + (window.isSecureContext ? 'Secure context ✅' : 'Non-secure context ⚠️'), 
+        window.isSecureContext ? 'success' : 'warn');
+  </script>
+</body>
+</html>
