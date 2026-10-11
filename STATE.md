@@ -1,7 +1,7 @@
 # Matinee Project State
 
 **Last updated:** 2026-10-10  
-**Current milestone:** M2 (Rooms + E2EE + presence + invite)  
+**Current milestone:** M2 (Rooms + E2EE + presence + invite) — ✅ COMPLETE  
 **Gate A:** APPROVED with conditions
 
 ## Owner Answers
@@ -19,8 +19,8 @@
 
 ## Milestone Status
 - **M1:** Foundation ✅ DONE (scaffolding complete)
-- **M2:** Rooms + E2EE + presence + invite 🔵 IN PROGRESS
-- **M3:** From Me core + remote control ⏳ PENDING (spikes S5+S1 first at M3 start)
+- **M2:** Rooms + E2EE + presence + invite ✅ DONE (Cloudflare Workers + Durable Objects, ECDH P-256 → AES-GCM-256)
+- **M3:** From Me core + remote control ⏳ NEXT (spikes S5+S1 first at M3 start)
 - **M4:** Theatre UI + Mixer + face bubbles ⏳ PENDING
 - **M5:** Voice/video + companion device + Doctor ⏳ PENDING
 - **M6:** Subtitles v1 ⏳ PENDING (spike S6 first)
