@@ -1,0 +1,30 @@
+{
+  "id": "FEAT-002",
+  "type": "feat",
+  "description": "E2EE crypto layer: ECDH P-256 key generation, HKDF-SHA-256 key derivation with roomId salt, AES-GCM-256 encrypt/decrypt. Creates apps/web/src/lib/crypto.ts with all cryptographic primitives needed for end-to-end encryption.",
+  "status": "completed",
+  "steps": [
+    "1. Create apps/web/src/lib/crypto.ts with generateKeyPair() function: Uses crypto.subtle.generateKey('ECDH', P-256 curve) to create key pair. Returns { publicKey: CryptoKey, privateKey: CryptoKey }.",
+    "2. Add exportPublicKey(publicKey: CryptoKey): Promise<JsonWebKey> to crypto.ts. Uses crypto.subtle.exportKey('jwk', publicKey).",
+    "3. Add importPublicKey(jwk: JsonWebKey): Promise<CryptoKey> to crypto.ts. Uses crypto.subtle.importKey('jwk', jwk, { name: 'ECDH', namedCurve: 'P-256' }, false, []).",
+    "4. Add deriveSharedSecret(privateKey: CryptoKey, peerPublicKey: CryptoKey, roomId: string): Promise<CryptoKey> to crypto.ts. Uses crypto.subtle.deriveKey with ECDH deriveBits, then HKDF-SHA-256 with roomId as salt. Returns AES-GCM-256 key.",
+    "5. Add encryptMessage(key: CryptoKey, plaintext: string): Promise<EncryptedEnvelope> to crypto.ts. Generates random IV (12 bytes), encrypts with AES-GCM, returns { iv: base64, ciphertext: base64, tag: included in ciphertext }.",
+    "6. Add decryptMessage(key: CryptoKey, envelope: EncryptedEnvelope): Promise<string> to crypto.ts. Decodes base64 IV and ciphertext, decrypts with AES-GCM, returns plaintext string.",
+    "7. Add TypeScript JSDoc comments to all functions explaining parameters and return values.",
+    "8. Test: Create apps/web/src/lib/__test-e2ee__.ts with a test function that generates two key pairs, derives shared secrets on both sides, encrypts a message with one key, decrypts with the other, and logs success/failure. Export testE2EE() function to call from browser console."
+  ],
+  "acceptance_criteria": [
+    "crypto.ts exports generateKeyPair, exportPublicKey, importPublicKey, deriveSharedSecret, encryptMessage, decryptMessage",
+    "deriveSharedSecret uses roomId as HKDF salt to ensure different rooms have different keys even with same peer keys",
+    "encryptMessage produces EncryptedEnvelope matching protocol type (iv, ciphertext as base64 strings)",
+    "decryptMessage successfully decrypts envelopes produced by encryptMessage",
+    "Test function in __test-e2ee__.ts demonstrates round-trip encryption between two simulated peers",
+    "TypeScript compilation succeeds with no errors"
+  ],
+  "verification": [
+    "pnpm --filter @matinee/web typecheck",
+    "Manual browser test: Open browser console, import { testE2EE } from './lib/__test-e2ee__', run testE2EE() and verify console logs show successful encryption/decryption"
+  ],
+  "blocked_reason": null,
+  "findings": "Implementation complete. crypto.ts exports all required functions: generateKeyPair, exportPublicKey, importPublicKey, deriveSharedSecret, encryptMessage, decryptMessage. HKDF-SHA-256 uses roomId as salt for key isolation. Test harness __test-e2ee__.ts includes round-trip test and room isolation verification. TypeScript compilation passed with no errors. Manual browser test pending user verification."
+}
