@@ -248,20 +248,21 @@ export async function deriveRoomKeys(roomSecret: Uint8Array): Promise<{
 
 /**
  * Signs an ECDH public key with K_auth using HMAC-SHA-256.
- * Per §11.3: sig = HMAC-SHA-256(K_auth, pubKey_jwk_json).
+ * Per §11.3: sig = HMAC-SHA-256(K_auth, raw_pubkey_bytes).
+ * Uses raw key bytes (not JWK) to avoid property order issues.
  * 
- * @param publicKeyJwk - ECDH public key in JWK format
+ * @param publicKey - ECDH public key (CryptoKey)
  * @param kAuth - Authentication key derived from roomSecret
  * @returns Promise resolving to base64-encoded signature
  */
 export async function signPublicKey(
-  publicKeyJwk: JsonWebKey,
+  publicKey: CryptoKey,
   kAuth: CryptoKey
 ): Promise<string> {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(JSON.stringify(publicKeyJwk));
+  // Export as raw bytes (property order independent)
+  const rawBytes = await crypto.subtle.exportKey('raw', publicKey);
 
-  const signature = await crypto.subtle.sign('HMAC', kAuth, data);
+  const signature = await crypto.subtle.sign('HMAC', kAuth, rawBytes);
 
   return btoa(String.fromCharCode(...new Uint8Array(signature)));
 }
@@ -270,20 +271,20 @@ export async function signPublicKey(
  * Verifies an ECDH public key signature using K_auth.
  * Uses constant-time comparison to prevent timing attacks.
  * 
- * @param publicKeyJwk - ECDH public key in JWK format
+ * @param publicKey - ECDH public key (CryptoKey)
  * @param signature - Base64-encoded HMAC signature
  * @param kAuth - Authentication key derived from roomSecret
  * @returns Promise resolving to true if signature is valid, false otherwise
  */
 export async function verifyPublicKey(
-  publicKeyJwk: JsonWebKey,
+  publicKey: CryptoKey,
   signature: string,
   kAuth: CryptoKey
 ): Promise<boolean> {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(JSON.stringify(publicKeyJwk));
+  // Export as raw bytes (property order independent)
+  const rawBytes = await crypto.subtle.exportKey('raw', publicKey);
 
-  const expectedSig = await crypto.subtle.sign('HMAC', kAuth, data);
+  const expectedSig = await crypto.subtle.sign('HMAC', kAuth, rawBytes);
   const expectedBase64 = btoa(String.fromCharCode(...new Uint8Array(expectedSig)));
 
   // Constant-time string comparison
@@ -523,28 +524,48 @@ export class ReplayTracker {
  * Generates SAS (Short Authentication String) from BOTH session public keys + roomId.
  * Per §11.3: Must derive from both public keys to detect key swapping attacks.
  * A secret-only SAS cannot detect if an attacker swapped one peer's key.
+ * Uses raw key bytes (not JWK) to avoid property order issues.
  * 
- * @param localPublicKeyJwk - Local peer's ECDH public key in JWK format
- * @param remotePublicKeyJwk - Remote peer's ECDH public key in JWK format
+ * @param localPublicKey - Local peer's ECDH public key (CryptoKey)
+ * @param remotePublicKey - Remote peer's ECDH public key (CryptoKey)
  * @param roomId - Room identifier
  * @returns Promise resolving to array of 4 BIP39 words
  */
 export async function generateSAS(
-  localPublicKeyJwk: JsonWebKey,
-  remotePublicKeyJwk: JsonWebKey,
+  localPublicKey: CryptoKey,
+  remotePublicKey: CryptoKey,
   roomId: string
 ): Promise<string[]> {
-  // Canonicalize JWKs (sort keys alphabetically to ensure consistent order)
-  const localJson = JSON.stringify(localPublicKeyJwk, Object.keys(localPublicKeyJwk).sort());
-  const remoteJson = JSON.stringify(remotePublicKeyJwk, Object.keys(remotePublicKeyJwk).sort());
+  // Export as raw bytes (property order independent)
+  const localRaw = await crypto.subtle.exportKey('raw', localPublicKey);
+  const remoteRaw = await crypto.subtle.exportKey('raw', remotePublicKey);
+  
+  const localBytes = new Uint8Array(localRaw);
+  const remoteBytes = new Uint8Array(remoteRaw);
   
   // Sort by lexical order to ensure both peers compute same hash
-  const [first, second] = [localJson, remoteJson].sort();
+  let firstBytes: Uint8Array, secondBytes: Uint8Array;
+  
+  // Compare byte-by-byte for sorting
+  let cmp = 0;
+  for (let i = 0; i < Math.min(localBytes.length, remoteBytes.length); i++) {
+    if (localBytes[i] !== remoteBytes[i]) {
+      cmp = localBytes[i] - remoteBytes[i];
+      break;
+    }
+  }
+  if (cmp === 0) cmp = localBytes.length - remoteBytes.length;
+  
+  if (cmp < 0) {
+    firstBytes = localBytes;
+    secondBytes = remoteBytes;
+  } else {
+    firstBytes = remoteBytes;
+    secondBytes = localBytes;
+  }
   
   const encoder = new TextEncoder();
   const roomIdBytes = encoder.encode(roomId);
-  const firstBytes = encoder.encode(first);
-  const secondBytes = encoder.encode(second);
   
   // Concatenate: roomId || firstKey || secondKey
   const combined = new Uint8Array(

@@ -70,3 +70,32 @@
 - Roles are symmetric: either person can be source.
 - Watch-along mode added as M8 candidate (no DRM bypass, no capture).
 - Netflix sync extension: v1.1 candidate only, not v1 requirement.
+
+
+---
+
+## 2026-10-10 21:05 UTC - M2b Crypto Implementation (CORRECTION)
+
+**CORRECTION:** Earlier agent claims that "tests pass" were **WRONG**. No test runner was installed initially. Tests claimed to pass but nothing ran.
+
+- Installed vitest@5.0.3 as devDependency in apps/web
+- Created crypto.test.ts with proper tests
+- **Fixed critical bugs:**
+  1. generateSAS was using JWK/JSON (property-order dependent) → now uses `exportKey('raw')` 
+  2. signPublicKey/verifyPublicKey were using JWK/JSON → now use `exportKey('raw')`
+  3. Added test proving same key with different JWK property order gives same signature/SAS
+
+**Actual test results (2026-10-10 21:04:32):**
+```
+Test Files  1 passed (1)
+     Tests  5 passed (5)
+Duration  1.74s
+
+✓ produces different words for different session public keys 28ms
+✓ produces the same words regardless of key order (deterministic) 2ms  
+✓ produces different words for different roomIds 1ms
+✓ uses raw key bytes (property order independent) 2ms
+✓ signPublicKey uses raw key bytes (property order independent) 8ms
+```
+
+**Why raw bytes matter:** JWK property order varies between `crypto.subtle.exportKey()` calls. Two exports of the same key can produce `{"x":"...","y":"..."}` or `{"y":"...","x":"..."}`. Hashing JSON would give different results. Raw bytes are canonical.
