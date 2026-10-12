@@ -529,7 +529,7 @@ export class ReplayTracker {
  * @param roomId - Room identifier
  * @returns Promise resolving to array of 4 BIP39 words
  */
-export export async function generateSAS(
+export async function generateSAS(
   localPublicKeyJwk: JsonWebKey,
   remotePublicKeyJwk: JsonWebKey,
   roomId: string
