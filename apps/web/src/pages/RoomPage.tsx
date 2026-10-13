@@ -1,249 +1,113 @@
 import { useEffect, useState, useRef } from 'react';
 import { useParams } from 'react-router-dom';
-import { useTranslation } from 'react-i18next';
-import RoomClient from '../lib/room-client';
-import { useRoomStore } from '../stores/roomStore';
-import { useUserPrefsStore } from '../stores/userPrefsStore';
+import { RoomClient } from '../lib/room-client';
+import { fromB64u } from '@matinee/protocol';
 
-type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'ready';
+const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8787';
 
 export default function RoomPage() {
   const { roomId } = useParams<{ roomId: string }>();
-  const { t } = useTranslation();
-  const [connectionStatus, setConnectionStatus] = useState<ConnectionState>('disconnected');
-  const [inviteUrl, setInviteUrl] = useState('');
-  const [copyFeedback, setCopyFeedback] = useState(false);
-  const roomClientRef = useRef<RoomClient | null>(null);
-  const peers = useRoomStore((state) => state.peers);
-  const displayName = useUserPrefsStore((state) => state.displayName);
+  const [status, setStatus] = useState<string>('Reading secret...');
+  const [messages, setMessages] = useState<string[]>([]);
+  const [inputText, setInputText] = useState('');
+  const clientRef = useRef<RoomClient | null>(null);
 
   useEffect(() => {
-    if (!roomId) return;
+    if (!roomId) {
+      setStatus('Error: No room ID');
+      return;
+    }
 
-    const peerId = crypto.randomUUID();
-    const name = displayName || 'Watcher';
+    // Read secret from fragment
+    const fragment = window.location.hash;
+    const match = fragment.match(/k=([A-Za-z0-9_-]+)/);
 
-    // Generate invite URL
-    const baseUrl = window.location.origin;
-    const url = `${baseUrl}/room/${roomId}`;
-    setInviteUrl(url);
+    if (!match) {
+      setStatus('Error: No secret in URL');
+      return;
+    }
 
-    // Create RoomClient instance
-    const client = new RoomClient(roomId, peerId, name);
-    roomClientRef.current = client;
+    const secretB64 = match[1];
+    const secret = fromB64u(secretB64);
 
-    // Set up event listeners
-    const unsubscribeConnected = client.on('connected', () => {
-      console.log('RoomPage: connected');
-      setConnectionStatus('connected');
+    // Strip fragment from URL (never send to server)
+    window.history.replaceState({}, '', window.location.pathname);
+
+    // Connect
+    const client = new RoomClient(roomId, WS_URL);
+    clientRef.current = client;
+
+    client.on('connected', ({ role }: any) => {
+      setStatus(`Connected (${role})`);
     });
 
-    const unsubscribePeerJoined = client.on('peer-joined', (peer) => {
-      console.log('RoomPage: peer-joined', peer);
+    client.on('error', (err: any) => {
+      setStatus(`Error: ${err.message}`);
     });
 
-    const unsubscribePeerLeft = client.on('peer-left', (peerId) => {
-      console.log('RoomPage: peer-left', peerId);
+    client.on('chat', ({ payload }: any) => {
+      const text = (payload as { text: string }).text;
+      setMessages((prev) => [...prev, `Peer: ${text}`]);
     });
 
-    const unsubscribeReady = client.on('ready', () => {
-      console.log('RoomPage: ready (E2EE established)');
-      setConnectionStatus('ready');
+    client.on('presence', (data: any) => {
+      setMessages((prev) => [...prev, `[${data.status}]`]);
     });
 
-    const unsubscribeDisconnected = client.on('disconnected', () => {
-      console.log('RoomPage: disconnected');
-      setConnectionStatus('disconnected');
+    setStatus('Connecting...');
+    client.connect(secret).catch((err) => {
+      setStatus(`Connection failed: ${err.message}`);
     });
 
-    // Connect to room
-    setConnectionStatus('connecting');
-    client.connect().catch((error) => {
-      console.error('RoomPage: connection error', error);
-      setConnectionStatus('disconnected');
-    });
-
-    // Cleanup on unmount
     return () => {
-      unsubscribeConnected();
-      unsubscribePeerJoined();
-      unsubscribePeerLeft();
-      unsubscribeReady();
-      unsubscribeDisconnected();
       client.disconnect();
     };
-  }, [roomId, displayName]);
+  }, [roomId]);
 
-  const handleCopyInvite = async () => {
+  const handleSend = async () => {
+    if (!clientRef.current || !inputText.trim()) return;
+
     try {
-      // Try modern clipboard API first (Fix #7: add fallback)
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        await navigator.clipboard.writeText(inviteUrl);
-      } else {
-        // Fallback for older browsers or non-secure contexts
-        const textarea = document.createElement('textarea');
-        textarea.value = inviteUrl;
-        textarea.style.position = 'fixed';
-        textarea.style.opacity = '0';
-        document.body.appendChild(textarea);
-        textarea.select();
-        document.execCommand('copy');
-        document.body.removeChild(textarea);
-      }
-      
-      setCopyFeedback(true);
-      setTimeout(() => setCopyFeedback(false), 2000);
-    } catch (error) {
-      console.error('Failed to copy invite URL:', error);
+      await clientRef.current.send('chat', { text: inputText });
+      setMessages((prev) => [...prev, `You: ${inputText}`]);
+      setInputText('');
+    } catch (err: any) {
+      setStatus(`Send failed: ${err.message}`);
     }
   };
-
-  const getStatusColor = (status: ConnectionState): string => {
-    switch (status) {
-      case 'disconnected':
-        return '#ef4444'; // red
-      case 'connecting':
-        return '#f59e0b'; // yellow
-      case 'connected':
-        return '#3b82f6'; // blue
-      case 'ready':
-        return '#10b981'; // green
-      default:
-        return '#6b7280'; // gray
-    }
-  };
-
-  const getStatusText = (status: ConnectionState): string => {
-    switch (status) {
-      case 'disconnected':
-        return t('status_disconnected');
-      case 'connecting':
-        return t('status_connecting');
-      case 'connected':
-        return t('status_connected');
-      case 'ready':
-        return t('status_ready');
-      default:
-        return status;
-    }
-  };
-
-  if (!roomId) {
-    return <div style={{ padding: '2rem' }}>Invalid room ID</div>;
-  }
 
   return (
     <div style={{ padding: '2rem', maxWidth: '800px', margin: '0 auto' }}>
-      <h1>{t('app_name')} — Room</h1>
+      <h1>Room: {roomId}</h1>
+      <p>Status: {status}</p>
 
-      {/* Room ID */}
-      <div style={{ marginTop: '2rem' }}>
-        <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
-          {t('room_id')}
-        </label>
-        <div
-          style={{
-            padding: '0.75rem',
-            backgroundColor: 'var(--color-surface-elevated)',
-            borderRadius: '4px',
-            fontFamily: 'monospace',
-            fontSize: '1.1rem',
-          }}
-        >
-          {roomId}
-        </div>
+      <div
+        style={{
+          border: '1px solid #ccc',
+          padding: '1rem',
+          height: '300px',
+          overflowY: 'auto',
+          marginBottom: '1rem',
+          backgroundColor: '#f9f9f9',
+        }}
+      >
+        {messages.map((msg, i) => (
+          <div key={i}>{msg}</div>
+        ))}
       </div>
 
-      {/* Invite URL */}
-      <div style={{ marginTop: '1.5rem' }}>
-        <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
-          {t('invite_url')}
-        </label>
-        <div style={{ display: 'flex', gap: '0.5rem' }}>
-          <input
-            type="text"
-            value={inviteUrl}
-            readOnly
-            style={{
-              flex: 1,
-              padding: '0.75rem',
-              backgroundColor: 'var(--color-surface-elevated)',
-              border: '1px solid var(--color-border)',
-              borderRadius: '4px',
-              fontFamily: 'monospace',
-              fontSize: '0.9rem',
-            }}
-          />
-          <button
-            onClick={handleCopyInvite}
-            style={{
-              padding: '0.75rem 1.5rem',
-              backgroundColor: copyFeedback
-                ? '#10b981'
-                : 'var(--color-accent-primary)',
-              color: 'white',
-              border: 'none',
-              borderRadius: '4px',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {copyFeedback ? '✓' : t('copy_invite')}
-          </button>
-        </div>
-      </div>
-
-      {/* Connection Status */}
-      <div style={{ marginTop: '1.5rem' }}>
-        <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
-          {t('connection_status')}
-        </label>
-        <div
-          style={{
-            display: 'inline-block',
-            padding: '0.5rem 1rem',
-            backgroundColor: getStatusColor(connectionStatus) + '20',
-            color: getStatusColor(connectionStatus),
-            border: `2px solid ${getStatusColor(connectionStatus)}`,
-            borderRadius: '4px',
-            fontWeight: 'bold',
-          }}
-        >
-          {getStatusText(connectionStatus)}
-        </div>
-      </div>
-
-      {/* Peers List */}
-      <div style={{ marginTop: '2rem' }}>
-        <h2 style={{ marginBottom: '1rem' }}>
-          {t('peers_in_room')} ({peers.length})
-        </h2>
-        {peers.length === 0 ? (
-          <p style={{ color: 'var(--color-text-secondary)' }}>
-            Waiting for peers to join...
-          </p>
-        ) : (
-          <ul style={{ listStyle: 'none' }}>
-            {peers.map((peer) => (
-              <li
-                key={peer.id}
-                style={{
-                  padding: '0.75rem',
-                  marginBottom: '0.5rem',
-                  backgroundColor: 'var(--color-surface-elevated)',
-                  borderRadius: '4px',
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                }}
-              >
-                <span style={{ fontWeight: 'bold' }}>{peer.displayName}</span>
-                <span style={{ fontSize: '0.85rem', color: 'var(--color-text-secondary)' }}>
-                  {new Date(peer.joinedAt).toLocaleTimeString()}
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
+      <div style={{ display: 'flex', gap: '0.5rem' }}>
+        <input
+          type="text"
+          value={inputText}
+          onChange={(e) => setInputText(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && handleSend()}
+          placeholder="Type a message..."
+          style={{ flex: 1, padding: '0.5rem' }}
+        />
+        <button onClick={handleSend} style={{ padding: '0.5rem 1rem' }}>
+          Send
+        </button>
       </div>
     </div>
   );
