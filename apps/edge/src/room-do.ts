@@ -1,8 +1,9 @@
 import type { DurableObjectState, DurableObjectNamespace } from '@cloudflare/workers-types';
+import type { Envelope } from '@matinee/protocol';
 
 /**
- * RoomDO - Durable Object for 2-peer encrypted room coordination
- * Per SPEC-M2B.md §10.4: hibernation-safe, 2-peer cap, knock/admit flow, 12h expiry
+ * RoomDO - Durable Object for 2-peer E2EE room coordination
+ * Per SPEC-M2B.md: joinToken auth, 2-peer cap, relay sealed envelopes only, 12h expiry
  */
 
 interface Env {
@@ -10,12 +11,11 @@ interface Env {
 }
 
 interface RoomState {
-  hostTokenHash: string | null;  // sha256(hostToken), set by first peer with createProof
+  joinTokenHash: string | null;  // sha256(joinToken), set on creation
   createdAt: number;
   lastActiveAt: number;
-  locked: boolean;
-  maxPeers: number;  // always 2 per §12.2
-  admitted: string[];  // peerIds admitted by host
+  maxPeers: number;  // always 2
+  admitted: string[];  // peerIds that passed joinToken check
 }
 
 interface SocketAttachment {
@@ -27,10 +27,15 @@ interface SocketAttachment {
   };
 }
 
-const IDLE_EXPIRY_MS = 12 * 60 * 60 * 1000;  // 12 hours per §8.3
+const IDLE_EXPIRY_MS = 12 * 60 * 60 * 1000;  // 12 hours
 const RATE_LIMIT_BURST = 40;
 const RATE_LIMIT_SUSTAINED = 20;  // msgs/sec
-const MAX_ENVELOPE_SIZE = 64 * 1024;  // 64 KiB
+const MAX_FRAME_SIZE = 64 * 1024;  // 64 KiB
+
+const RE_PEER = /^[0-9a-f]{16}$/;
+const RE_SID = /^[0-9a-f]{8}$/;
+const RE_TYPE = /^[a-z0-9._-]{1,32}$/;
+const MAX_CT_CHARS = 1_400_000;
 
 export class RoomDO {
   private state: DurableObjectState;
@@ -47,21 +52,17 @@ export class RoomDO {
       return new Response('Expected WebSocket upgrade', { status: 400 });
     }
 
-    // Extract peerId from query params
     const url = new URL(req.url);
     const peerId = url.searchParams.get('p');
-    if (!peerId || peerId.length !== 16) {
+    if (!peerId || !RE_PEER.test(peerId)) {
       return new Response('Invalid peerId (must be 16 hex chars)', { status: 400 });
     }
 
-    // Create WebSocket pair
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
 
-    // Accept WebSocket (hibernation-safe API)
     this.state.acceptWebSocket(server, [peerId]);
 
-    // Initialize attachment
     const attachment: SocketAttachment = {
       peerId,
       admitted: false,
@@ -72,7 +73,6 @@ export class RoomDO {
     };
     server.serializeAttachment(attachment);
 
-    // Update last active time
     await this.touchActivity();
 
     return new Response(null, {
@@ -83,46 +83,42 @@ export class RoomDO {
 
   async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
     try {
-      // Parse attachment
       const attachment = ws.deserializeAttachment() as SocketAttachment;
       if (!attachment) {
         ws.close(1002, 'No attachment');
         return;
       }
 
-      // Size check
       const size = typeof message === 'string' ? message.length : message.byteLength;
-      if (size > MAX_ENVELOPE_SIZE) {
+      if (size > MAX_FRAME_SIZE) {
         ws.close(1009, 'Message too large');
         return;
       }
 
-      // Rate limit check
       if (!this.checkRateLimit(attachment)) {
         ws.close(1008, 'Rate limit exceeded');
         return;
       }
       ws.serializeAttachment(attachment);
 
-      // Parse envelope
-      let envelope: any;
+      let frame: any;
       try {
-        envelope = typeof message === 'string' ? JSON.parse(message) : JSON.parse(new TextDecoder().decode(message));
+        frame = typeof message === 'string' ? JSON.parse(message) : JSON.parse(new TextDecoder().decode(message));
       } catch {
         ws.close(1003, 'Invalid JSON');
         return;
       }
 
-      // Validate envelope structure (minimal - zod validation should happen in protocol package)
-      if (!envelope.v || !envelope.t || !envelope.from || envelope.from !== attachment.peerId) {
-        ws.close(1003, 'Invalid envelope');
+      // Validate: either a control frame or a valid Envelope
+      if (this.isControlFrame(frame)) {
+        await this.handleControlFrame(ws, frame, attachment);
+      } else if (this.isValidEnvelope(frame)) {
+        await this.relayEnvelope(ws, frame as Envelope, attachment);
+      } else {
+        // Drop invalid frames silently (per spec: server validates shape, never reads ct)
         return;
       }
 
-      // Route by message type
-      await this.handleMessage(ws, envelope, attachment);
-
-      // Touch activity on valid messages
       await this.touchActivity();
     } catch (err) {
       console.error('webSocketMessage error:', err);
@@ -134,7 +130,6 @@ export class RoomDO {
     const attachment = ws.deserializeAttachment() as SocketAttachment;
     if (!attachment) return;
 
-    // Remove from admitted list
     const roomState = await this.getRoomState();
     if (roomState && attachment.admitted) {
       roomState.admitted = roomState.admitted.filter(id => id !== attachment.peerId);
@@ -148,21 +143,17 @@ export class RoomDO {
       const otherAttachment = sock.deserializeAttachment() as SocketAttachment;
       if (otherAttachment?.admitted) {
         sock.send(JSON.stringify({
-          v: 1,
-          t: 'bye',
-          from: attachment.peerId,
-          seq: 0,
-          sid: '00000000',
+          type: 'presence',
+          peerId: attachment.peerId,
+          status: 'left',
         }));
       }
     }
 
-    // Update activity
     await this.touchActivity();
   }
 
   async alarm(): Promise<void> {
-    // Check if room has expired (12h idle)
     const roomState = await this.getRoomState();
     if (!roomState) return;
 
@@ -170,253 +161,135 @@ export class RoomDO {
     const idleTime = now - roomState.lastActiveAt;
 
     if (idleTime >= IDLE_EXPIRY_MS) {
-      // Close all sockets
       const sockets = this.state.getWebSockets();
       for (const sock of sockets) {
         sock.close(1000, 'Room expired');
       }
-
-      // Delete storage
       await this.state.storage.deleteAll();
     } else {
-      // Schedule next check
       const nextCheck = roomState.lastActiveAt + IDLE_EXPIRY_MS;
       await this.state.storage.setAlarm(nextCheck);
     }
   }
 
-  private async handleMessage(ws: WebSocket, envelope: any, attachment: SocketAttachment): Promise<void> {
+  private isControlFrame(frame: any): boolean {
+    return frame && typeof frame.type === 'string' && ['join', 'ping', 'presence'].includes(frame.type);
+  }
+
+  private isValidEnvelope(frame: any): boolean {
+    if (!frame || frame.v !== 1) return false;
+    if (typeof frame.t !== 'string' || !RE_TYPE.test(frame.t)) return false;
+    if (typeof frame.from !== 'string' || !RE_PEER.test(frame.from)) return false;
+    if (frame.to !== undefined && (typeof frame.to !== 'string' || !RE_PEER.test(frame.to))) return false;
+    if (!RE_SID.test(frame.sid)) return false;
+    if (!Number.isSafeInteger(frame.seq) || frame.seq < 0) return false;
+    if (typeof frame.iv !== 'string' || typeof frame.ct !== 'string') return false;
+    if (frame.ct.length > MAX_CT_CHARS) return false;
+    return true;
+  }
+
+  private async handleControlFrame(ws: WebSocket, frame: any, attachment: SocketAttachment): Promise<void> {
     const roomState = await this.getRoomState();
 
-    switch (envelope.t) {
-      case 'create':
-        await this.handleCreate(ws, envelope, attachment);
-        break;
-
-      case 'knock':
-        await this.handleKnock(ws, envelope, attachment, roomState);
-        break;
-
-      case 'admit':
-        await this.handleAdmit(ws, envelope, attachment, roomState);
-        break;
-
-      case 'deny':
-        await this.handleDeny(ws, envelope, attachment, roomState);
+    switch (frame.type) {
+      case 'join':
+        await this.handleJoin(ws, frame, attachment, roomState);
         break;
 
       case 'ping':
-        // Respond with pong
-        ws.send(JSON.stringify({
-          v: 1,
-          t: 'pong',
-          from: 'server',
-          to: attachment.peerId,
-          seq: 0,
-          sid: '00000000',
-        }));
+        ws.send(JSON.stringify({ type: 'pong', timestamp: Date.now() }));
         break;
 
-      default:
-        // Relay to other admitted peers (or specific peer if `to` is set)
-        if (!attachment.admitted) {
-          // Unadmitted sockets receive nothing except deny/wait/full
-          return;
+      case 'presence':
+        if (attachment.admitted) {
+          await this.broadcastToAdmitted(ws, frame, attachment);
         }
-        await this.relayMessage(ws, envelope, attachment);
         break;
     }
   }
 
-  private async handleCreate(ws: WebSocket, envelope: any, attachment: SocketAttachment): Promise<void> {
-    let roomState = await this.getRoomState();
-
-    // If room already has a host, reject
-    if (roomState && roomState.hostTokenHash) {
-      ws.send(JSON.stringify({
-        v: 1,
-        t: 'deny',
-        from: 'server',
-        to: attachment.peerId,
-        seq: 0,
-        sid: '00000000',
-      }));
+  private async handleJoin(ws: WebSocket, frame: any, attachment: SocketAttachment, roomState: RoomState | null): Promise<void> {
+    const joinToken = frame.joinToken;
+    if (!joinToken || typeof joinToken !== 'string') {
+      ws.send(JSON.stringify({ type: 'join-denied', reason: 'Missing joinToken' }));
+      ws.close(1008, 'Missing joinToken');
       return;
     }
 
-    // Extract proof (should be sha256(hostToken))
-    if (!envelope.proof || typeof envelope.proof !== 'string') {
-      ws.close(1003, 'Missing createProof');
-      return;
-    }
+    // Hash the joinToken
+    const encoder = new TextEncoder();
+    const digest = await crypto.subtle.digest('SHA-256', encoder.encode(joinToken));
+    const hash = btoa(String.fromCharCode(...new Uint8Array(digest))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
-    // Initialize room state
-    roomState = {
-      hostTokenHash: envelope.proof,  // Store the hash
-      createdAt: Date.now(),
-      lastActiveAt: Date.now(),
-      locked: false,
-      maxPeers: 2,
-      admitted: [attachment.peerId],  // Host is auto-admitted
-    };
-    await this.state.storage.put('state', roomState);
-
-    // Mark socket as admitted
-    attachment.admitted = true;
-    ws.serializeAttachment(attachment);
-
-    // Schedule expiry alarm
-    await this.state.storage.setAlarm(Date.now() + IDLE_EXPIRY_MS);
-
-    // Acknowledge
-    ws.send(JSON.stringify({
-      v: 1,
-      t: 'admit',
-      from: 'server',
-      to: attachment.peerId,
-      seq: 0,
-      sid: '00000000',
-    }));
-  }
-
-  private async handleKnock(ws: WebSocket, envelope: any, attachment: SocketAttachment, roomState: RoomState | null): Promise<void> {
+    // First joiner: create room
     if (!roomState) {
-      ws.send(JSON.stringify({
-        v: 1,
-        t: 'deny',
-        from: 'server',
-        to: attachment.peerId,
-        seq: 0,
-        sid: '00000000',
-      }));
+      roomState = {
+        joinTokenHash: hash,
+        createdAt: Date.now(),
+        lastActiveAt: Date.now(),
+        maxPeers: 2,
+        admitted: [attachment.peerId],
+      };
+      await this.state.storage.put('state', roomState);
+
+      attachment.admitted = true;
+      ws.serializeAttachment(attachment);
+
+      await this.state.storage.setAlarm(Date.now() + IDLE_EXPIRY_MS);
+
+      ws.send(JSON.stringify({ type: 'join-ok', role: 'creator' }));
+      return;
+    }
+
+    // Check joinToken matches
+    if (hash !== roomState.joinTokenHash) {
+      ws.send(JSON.stringify({ type: 'join-denied', reason: 'Wrong secret' }));
+      ws.close(1008, 'Wrong secret');
       return;
     }
 
     // Check capacity
     if (roomState.admitted.length >= roomState.maxPeers) {
-      ws.send(JSON.stringify({
-        v: 1,
-        t: 'full',
-        from: 'server',
-        to: attachment.peerId,
-        seq: 0,
-        sid: '00000000',
-      }));
+      ws.send(JSON.stringify({ type: 'join-denied', reason: 'Room full' }));
+      ws.close(1008, 'Room full');
       return;
     }
 
-    // Check if locked
-    if (roomState.locked) {
-      ws.send(JSON.stringify({
-        v: 1,
-        t: 'deny',
-        from: 'server',
-        to: attachment.peerId,
-        seq: 0,
-        sid: '00000000',
-      }));
-      return;
-    }
+    // Admit
+    roomState.admitted.push(attachment.peerId);
+    await this.state.storage.put('state', roomState);
 
-    // Forward knock to host (first admitted peer)
-    const hostPeerId = roomState.admitted[0];
+    attachment.admitted = true;
+    ws.serializeAttachment(attachment);
+
+    ws.send(JSON.stringify({ type: 'join-ok', role: 'joiner' }));
+
+    // Notify other peer
     const sockets = this.state.getWebSockets();
     for (const sock of sockets) {
+      if (sock === ws) continue;
       const otherAttachment = sock.deserializeAttachment() as SocketAttachment;
-      if (otherAttachment?.peerId === hostPeerId && otherAttachment.admitted) {
-        // Forward the knock envelope (includes name, etc.)
-        sock.send(JSON.stringify(envelope));
-        break;
-      }
-    }
-
-    // Send wait to knocker
-    ws.send(JSON.stringify({
-      v: 1,
-      t: 'wait',
-      from: 'server',
-      to: attachment.peerId,
-      seq: 0,
-      sid: '00000000',
-    }));
-  }
-
-  private async handleAdmit(ws: WebSocket, envelope: any, attachment: SocketAttachment, roomState: RoomState | null): Promise<void> {
-    if (!roomState || !attachment.admitted) return;
-
-    // Only host can admit (first admitted peer)
-    if (attachment.peerId !== roomState.admitted[0]) {
-      return;
-    }
-
-    // Extract target peerId
-    const targetPeerId = envelope.to;
-    if (!targetPeerId) return;
-
-    // Find target socket
-    const sockets = this.state.getWebSockets();
-    for (const sock of sockets) {
-      const otherAttachment = sock.deserializeAttachment() as SocketAttachment;
-      if (otherAttachment?.peerId === targetPeerId && !otherAttachment.admitted) {
-        // Admit the peer
-        otherAttachment.admitted = true;
-        sock.serializeAttachment(otherAttachment);
-
-        // Update room state
-        roomState.admitted.push(targetPeerId);
-        await this.state.storage.put('state', roomState);
-
-        // Notify admitted peer
+      if (otherAttachment?.admitted) {
         sock.send(JSON.stringify({
-          v: 1,
-          t: 'admit',
-          from: 'server',
-          to: targetPeerId,
-          seq: 0,
-          sid: '00000000',
+          type: 'presence',
+          peerId: attachment.peerId,
+          status: 'joined',
         }));
-        break;
       }
     }
   }
 
-  private async handleDeny(ws: WebSocket, envelope: any, attachment: SocketAttachment, roomState: RoomState | null): Promise<void> {
-    if (!roomState || !attachment.admitted) return;
+  private async relayEnvelope(ws: WebSocket, envelope: Envelope, attachment: SocketAttachment): Promise<void> {
+    if (!attachment.admitted) return;
 
-    // Only host can deny
-    if (attachment.peerId !== roomState.admitted[0]) {
-      return;
-    }
+    // Validate from matches sender
+    if (envelope.from !== attachment.peerId) return;
 
-    // Extract target peerId
-    const targetPeerId = envelope.to;
-    if (!targetPeerId) return;
-
-    // Find target socket and close it
-    const sockets = this.state.getWebSockets();
-    for (const sock of sockets) {
-      const otherAttachment = sock.deserializeAttachment() as SocketAttachment;
-      if (otherAttachment?.peerId === targetPeerId && !otherAttachment.admitted) {
-        sock.send(JSON.stringify({
-          v: 1,
-          t: 'deny',
-          from: 'server',
-          to: targetPeerId,
-          seq: 0,
-          sid: '00000000',
-        }));
-        sock.close(1000, 'Denied by host');
-        break;
-      }
-    }
-  }
-
-  private async relayMessage(ws: WebSocket, envelope: any, attachment: SocketAttachment): Promise<void> {
     const sockets = this.state.getWebSockets();
     const targetPeerId = envelope.to;
 
     for (const sock of sockets) {
-      if (sock === ws) continue;  // Don't send back to sender
+      if (sock === ws) continue;
 
       const otherAttachment = sock.deserializeAttachment() as SocketAttachment;
       if (!otherAttachment?.admitted) continue;
@@ -424,26 +297,34 @@ export class RoomDO {
       // Send to specific peer or broadcast to all admitted
       if (!targetPeerId || otherAttachment.peerId === targetPeerId) {
         sock.send(JSON.stringify(envelope));
-        if (targetPeerId) break;  // Unicast - stop after sending
+        if (targetPeerId) break;
+      }
+    }
+  }
+
+  private async broadcastToAdmitted(ws: WebSocket, frame: any, attachment: SocketAttachment): Promise<void> {
+    const sockets = this.state.getWebSockets();
+    for (const sock of sockets) {
+      if (sock === ws) continue;
+      const otherAttachment = sock.deserializeAttachment() as SocketAttachment;
+      if (otherAttachment?.admitted) {
+        sock.send(JSON.stringify(frame));
       }
     }
   }
 
   private checkRateLimit(attachment: SocketAttachment): boolean {
     const now = Date.now();
-    const elapsed = (now - attachment.bucket.t) / 1000;  // seconds
+    const elapsed = (now - attachment.bucket.t) / 1000;
     const refill = Math.floor(elapsed * RATE_LIMIT_SUSTAINED);
 
-    // Refill tokens
     attachment.bucket.n = Math.min(RATE_LIMIT_BURST, attachment.bucket.n + refill);
     attachment.bucket.t = now;
 
-    // Check if we have tokens
     if (attachment.bucket.n < 1) {
       return false;
     }
 
-    // Consume one token
     attachment.bucket.n -= 1;
     return true;
   }
