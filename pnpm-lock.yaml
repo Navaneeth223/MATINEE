@@ -23,6 +23,9 @@ importers:
       typescript:
         specifier: 5.9.3
         version: 5.9.3
+      vitest:
+        specifier: 5.0.3
+        version: 5.0.3(@types/node@24.19.2)(vite@6.4.4(@types/node@24.19.2))
 
   apps/edge:
     dependencies:
@@ -38,7 +41,7 @@ importers:
         version: 5.9.3
       wrangler:
         specifier: ^4.9.0
-        version: 4.149.0(@cloudflare/workers-types@5.20261010.1)
+        version: 4.149.0(@cloudflare/workers-types@5.20261010.1)(@types/node@24.19.2)
 
   apps/web:
     dependencies:
@@ -2238,10 +2241,10 @@ snapshots:
     dependencies:
       '@jridgewell/sourcemap-codec': 1.6.0
 
-  miniflare@5.20261006.1-alpha:
+  miniflare@5.20261006.1-alpha(@types/node@24.19.2):
     dependencies:
       '@cspotcode/source-map-support': 0.8.1
-      sharp: 0.35.5
+      sharp: 0.35.5(@types/node@24.19.2)
       undici: 7.29.1
       workerd: 1.20261006.1
       ws: 8.21.0
@@ -2359,7 +2362,7 @@ snapshots:
 
   set-cookie-parser@2.7.2: {}
 
-  sharp@0.35.5:
+  sharp@0.35.5(@types/node@24.19.2):
     dependencies:
       '@img/colour': 1.1.0
       detect-libc: 2.1.2
@@ -2390,6 +2393,7 @@ snapshots:
       '@img/sharp-win32-arm64': 0.35.5
       '@img/sharp-win32-ia32': 0.35.5
       '@img/sharp-win32-x64': 0.35.5
+      '@types/node': 24.19.2
 
   source-map-js@1.2.2: {}
 
@@ -2479,13 +2483,13 @@ snapshots:
       '@cloudflare/workerd-linux-arm64': 1.20261006.1
       '@cloudflare/workerd-windows-64': 1.20261006.1
 
-  wrangler@4.149.0(@cloudflare/workers-types@5.20261010.1):
+  wrangler@4.149.0(@cloudflare/workers-types@5.20261010.1)(@types/node@24.19.2):
     dependencies:
       '@cloudflare/kv-asset-handler': 0.5.0
       '@cloudflare/unenv-preset': 2.16.2(unenv@2.0.0-rc.24)(workerd@1.20261006.1)
       blake3-wasm: 2.1.5
       esbuild: 0.28.2
-      miniflare: 5.20261006.1-alpha
+      miniflare: 5.20261006.1-alpha(@types/node@24.19.2)
       path-to-regexp: 6.3.0
       unenv: 2.0.0-rc.24
       workerd: 1.20261006.1

@@ -89,3 +89,6 @@ export interface SignedPublicKey {
   publicKey: JsonWebKey;
   signature: string; // base64 HMAC-SHA-256
 }
+
+
+export * from './seal';
