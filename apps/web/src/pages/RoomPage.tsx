@@ -3,8 +3,6 @@ import { useParams } from 'react-router-dom';
 import { RoomClient } from '../lib/room-client';
 import { fromB64u } from '@matinee/protocol';
 
-const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8787';
-
 export default function RoomPage() {
   const { roomId } = useParams<{ roomId: string }>();
   const [status, setStatus] = useState<string>('Reading secret...');
@@ -34,7 +32,7 @@ export default function RoomPage() {
     window.history.replaceState({}, '', window.location.pathname);
 
     // Connect
-    const client = new RoomClient(roomId, WS_URL);
+    const client = new RoomClient(roomId);
     clientRef.current = client;
 
     client.on('connected', ({ role }: any) => {
@@ -45,7 +43,7 @@ export default function RoomPage() {
       setStatus(`Error: ${err.message}`);
     });
 
-    client.on('chat', ({ payload }: any) => {
+    client.on('msg:chat', ({ payload }: any) => {
       const text = (payload as { text: string }).text;
       setMessages((prev) => [...prev, `Peer: ${text}`]);
     });
