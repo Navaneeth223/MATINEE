@@ -7,6 +7,7 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "typecheck": "tsc --noEmit",
+    "pretest": "pnpm --filter @matinee/protocol build",
     "test": "vitest",
     "clean": "node -e \"import('fs').then(fs => fs.rmSync('dist', {recursive: true, force: true}))\""
   },

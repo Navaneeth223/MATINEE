@@ -22,6 +22,7 @@ interface SocketAttachment {
   peerId: string;
   admitted: boolean;
   lastSeenAt: number;  // timestamp of last valid frame
+  connectedAt: number;  // timestamp when socket connected
   bucket: {
     t: number;  // last refill timestamp
     n: number;  // tokens (float)
@@ -32,8 +33,6 @@ const IDLE_EXPIRY_MS = 12 * 60 * 60 * 1000;  // 12 hours
 const RATE_LIMIT_BURST = 40;
 const RATE_LIMIT_SUSTAINED = 20;  // msgs/sec
 const MAX_FRAME_SIZE = 64 * 1024;  // 64 KiB
-const UNADMITTED_TIMEOUT_MS = 10_000;  // 10 seconds
-const HALF_OPEN_TIMEOUT_MS = 60_000;  // 60 seconds
 const MAX_SOCKETS = 4;
 const PERSIST_INTERVAL_MS = 5 * 60 * 1000;  // 5 minutes
 
@@ -48,10 +47,17 @@ export class RoomDO {
   private env: Env;
   private lastActiveAt: number = Date.now();
   private lastPersistAt: number = 0;
+  private UNADMITTED_TIMEOUT_MS: number;
+  private HALF_OPEN_TIMEOUT_MS: number;
 
   constructor(state: DurableObjectState, env: Env) {
     this.state = state;
     this.env = env;
+    
+    // Read timeouts from env vars (for testing), default to production values
+    this.UNADMITTED_TIMEOUT_MS = parseInt((env as any).UNADMITTED_TIMEOUT_MS || '10000', 10);
+    this.HALF_OPEN_TIMEOUT_MS = parseInt((env as any).HALF_OPEN_TIMEOUT_MS || '60000', 10);
+    
     this.state.blockConcurrencyWhile(async () => {
       const roomState = await this.getRoomState();
       if (roomState) {
@@ -82,6 +88,7 @@ export class RoomDO {
       peerId,
       admitted: false,
       lastSeenAt: now,
+      connectedAt: now,
       bucket: {
         t: now,
         n: RATE_LIMIT_BURST,
@@ -90,8 +97,7 @@ export class RoomDO {
     server.serializeAttachment(attachment);
 
     this.touchActivity();
-    this.evictIdleSockets();
-    this.enforceSocketCap();
+    this.scheduleUnadmittedCheck();
 
     return new Response(null, {
       status: 101,
@@ -183,19 +189,44 @@ export class RoomDO {
 
   async alarm(): Promise<void> {
     const now = Date.now();
+    
+    // Check for expired room
     const idleTime = now - this.lastActiveAt;
-
     if (idleTime >= IDLE_EXPIRY_MS) {
       const sockets = this.state.getWebSockets();
       for (const sock of sockets) {
         sock.close(1000, 'Room expired');
       }
       await this.state.storage.deleteAll();
-    } else {
-      this.evictIdleSockets();
-      const nextCheck = this.lastActiveAt + IDLE_EXPIRY_MS;
-      await this.state.storage.setAlarm(nextCheck);
+      return;
     }
+
+    // Close unadmitted sockets that exceeded timeout
+    const sockets = this.state.getWebSockets();
+    let nextUnadmittedDeadline: number | null = null;
+    
+    for (const sock of sockets) {
+      const attachment = sock.deserializeAttachment() as SocketAttachment;
+      if (!attachment || attachment.admitted) continue;
+
+      const age = now - attachment.connectedAt;
+      if (age >= this.UNADMITTED_TIMEOUT_MS) {
+        sock.close(1008, 'Admission timeout');
+      } else {
+        const deadline = attachment.connectedAt + this.UNADMITTED_TIMEOUT_MS;
+        if (!nextUnadmittedDeadline || deadline < nextUnadmittedDeadline) {
+          nextUnadmittedDeadline = deadline;
+        }
+      }
+    }
+
+    // Schedule next alarm
+    const idleDeadline = this.lastActiveAt + IDLE_EXPIRY_MS;
+    const nextAlarm = nextUnadmittedDeadline && nextUnadmittedDeadline < idleDeadline
+      ? nextUnadmittedDeadline
+      : idleDeadline;
+    
+    await this.state.storage.setAlarm(nextAlarm);
   }
 
   private isControlFrame(frame: any): boolean {
@@ -399,8 +430,8 @@ export class RoomDO {
       const attachment = sock.deserializeAttachment() as SocketAttachment;
       if (!attachment) continue;
 
-      // Close unadmitted sockets older than 10s
-      if (!attachment.admitted && now - attachment.lastSeenAt >= UNADMITTED_TIMEOUT_MS) {
+      // Close unadmitted sockets older than timeout
+      if (!attachment.admitted && now - attachment.lastSeenAt >= this.UNADMITTED_TIMEOUT_MS) {
         sock.close(1008, 'Admission timeout');
       }
     }
@@ -410,12 +441,12 @@ export class RoomDO {
     const now = Date.now();
     const sockets = this.state.getWebSockets();
     
-    // Find admitted sockets that are silent for >60s
+    // Find admitted sockets that are silent for >timeout
     for (const sock of sockets) {
       const attachment = sock.deserializeAttachment() as SocketAttachment;
       if (!attachment?.admitted) continue;
 
-      if (now - attachment.lastSeenAt >= HALF_OPEN_TIMEOUT_MS) {
+      if (now - attachment.lastSeenAt >= this.HALF_OPEN_TIMEOUT_MS) {
         // Remove from admitted list
         roomState.admitted = roomState.admitted.filter(id => id !== attachment.peerId);
         sock.close(1008, 'Evicted (half-open)');
