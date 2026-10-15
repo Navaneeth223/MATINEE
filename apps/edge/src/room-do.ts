@@ -422,19 +422,16 @@ export class RoomDO {
     }
   }
 
-  private evictIdleSockets(): void {
+  private scheduleUnadmittedCheck(): void {
     const now = Date.now();
-    const sockets = this.state.getWebSockets();
+    const nextCheck = now + this.UNADMITTED_TIMEOUT_MS;
     
-    for (const sock of sockets) {
-      const attachment = sock.deserializeAttachment() as SocketAttachment;
-      if (!attachment) continue;
-
-      // Close unadmitted sockets older than timeout
-      if (!attachment.admitted && now - attachment.lastSeenAt >= this.UNADMITTED_TIMEOUT_MS) {
-        sock.close(1008, 'Admission timeout');
+    // Set alarm if not already set or if this check is sooner
+    this.state.storage.getAlarm().then((existing) => {
+      if (!existing || nextCheck < existing) {
+        this.state.storage.setAlarm(nextCheck);
       }
-    }
+    });
   }
 
   private async evictHalfOpenSockets(roomState: RoomState): Promise<void> {
@@ -462,7 +459,7 @@ export class RoomDO {
     const unadmitted = sockets
       .map(sock => ({ sock, attachment: sock.deserializeAttachment() as SocketAttachment }))
       .filter(({ attachment }) => attachment && !attachment.admitted)
-      .sort((a, b) => a.attachment.lastSeenAt - b.attachment.lastSeenAt);
+      .sort((a, b) => a.attachment.connectedAt - b.attachment.connectedAt);
 
     const excess = sockets.length - MAX_SOCKETS;
     for (let i = 0; i < Math.min(excess, unadmitted.length); i++) {
