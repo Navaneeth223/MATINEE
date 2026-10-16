@@ -119,7 +119,10 @@ export class RoomClient {
 
             if (!payload) {
               // Failed to open (replay, wrong key, etc.)
+              console.error('Session.open() failed for envelope:', envelope);
               this.failedOpens++;
+              this.emit('decrypt-error', { envelope, error: 'Session.open returned null' });
+              
               if (this.failedOpens >= MAX_FAILED_OPENS) {
                 this.emit('error', new Error('Too many failed decryptions'));
                 this.disconnect();
@@ -127,11 +130,14 @@ export class RoomClient {
               return;
             }
 
+            console.log('Session.open() succeeded:', { type: envelope.t, payload });
+
             // Emit as 'msg:' + type
             this.emit(`msg:${envelope.t}`, { payload, envelope });
           }
         } catch (err) {
           console.error('RoomClient message error:', err);
+          this.emit('decrypt-error', { error: String(err) });
         }
       };
 
