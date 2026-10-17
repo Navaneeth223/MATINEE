@@ -1,19 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { newRoomSecret, toB64u } from '@matinee/protocol';
-
-function generateRoomId(): string {
-  const bytes = crypto.getRandomValues(new Uint8Array(5));
-  const alphabet = '0123456789ABCDEFGHJKMNPQRSTVWXYZ'; // Crockford Base32
-  let id = '';
-  for (let i = 0; i < 10; i++) {
-    const val = i < 8 ? bytes[Math.floor(i * 5 / 8)] ?? 0 : 0;
-    const shift = (i * 5) % 8;
-    const index = (val >> (8 - 5 - shift)) & 0x1F;
-    id += alphabet[index];
-  }
-  return id;
-}
+import { newRoomSecret, toB64u, newRoomId } from '@matinee/protocol';
 
 export default function FoyerPage() {
   const [creating, setCreating] = useState(false);
@@ -22,7 +9,7 @@ export default function FoyerPage() {
   const handleCreateRoom = () => {
     setCreating(true);
 
-    const roomId = generateRoomId();
+    const roomId = newRoomId();
     const secret = newRoomSecret();
     const secretB64 = toB64u(secret);
 

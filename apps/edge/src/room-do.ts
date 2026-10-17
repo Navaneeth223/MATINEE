@@ -168,19 +168,19 @@ export class RoomDO {
     if (roomState && attachment.admitted) {
       roomState.admitted = roomState.admitted.filter(id => id !== attachment.peerId);
       await this.state.storage.put('state', roomState);
-    }
-
-    // Notify other admitted peers
-    const sockets = this.state.getWebSockets();
-    for (const sock of sockets) {
-      if (sock === ws) continue;
-      const otherAttachment = sock.deserializeAttachment() as SocketAttachment;
-      if (otherAttachment?.admitted) {
-        sock.send(JSON.stringify({
-          type: 'presence',
-          peerId: attachment.peerId,
-          status: 'left',
-        }));
+      
+      // Notify other admitted peers ONLY if this socket was admitted
+      const sockets = this.state.getWebSockets();
+      for (const sock of sockets) {
+        if (sock === ws) continue;
+        const otherAttachment = sock.deserializeAttachment() as SocketAttachment;
+        if (otherAttachment?.admitted) {
+          sock.send(JSON.stringify({
+            type: 'presence',
+            peerId: attachment.peerId,
+            status: 'left',
+          }));
+        }
       }
     }
 
