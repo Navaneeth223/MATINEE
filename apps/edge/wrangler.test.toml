@@ -3,7 +3,7 @@ main = "src/index.ts"
 compatibility_date = "2024-01-01"
 
 [dev]
-port = 8788
+port = 8789
 
 [vars]
 UNADMITTED_TIMEOUT_MS = "1000"
