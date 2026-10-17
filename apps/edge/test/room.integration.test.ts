@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { Session, newRoomSecret, deriveRoomKeys, newPeerId } from '@matinee/protocol';
 import { WebSocket } from 'ws';
 
-const BASE_URL = 'http://127.0.0.1:8788';
+const BASE_URL = 'http://127.0.0.1:8789';
 
 async function connectPeer(roomId: string, peerId: string): Promise<WebSocket> {
   return new Promise((resolve, reject) => {
