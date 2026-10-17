@@ -92,4 +92,4 @@ export interface SignedPublicKey {
 
 
 export * from './seal';
-export * from './room-id';
+export { newRoomId, RE_ROOM_ID } from './room-id';
