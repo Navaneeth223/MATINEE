@@ -50,6 +50,8 @@ export default function RoomPage() {
     const secretB64 = match[1];
     const secret = fromB64u(secretB64);
     secretRef.current = secret;
+    secretB64Ref.current = secretB64;
+    roomIdRef.current = roomId;
 
     // Strip fragment from URL (never send to server)
     window.history.replaceState({}, '', window.location.pathname);

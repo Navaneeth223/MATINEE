@@ -1,1 +1,0 @@
-This folder contains the built output assets for the worker "matinee-edge" generated at 2026-10-15T13:39:33.934Z.
