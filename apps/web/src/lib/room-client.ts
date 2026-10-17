@@ -1,418 +1,249 @@
-import type { WSMessage, Peer, KeyExchangeMessage } from '@matinee/protocol';
-import {
-  generateKeyPair,
-  exportPublicKey,
-  importPublicKey,
-  deriveSharedSecret,
-  encryptMessage,
-  decryptMessage,
-} from './crypto';
-import { useRoomStore } from '../stores/roomStore';
+import { Session, deriveRoomKeys, newPeerId, type Envelope } from '@matinee/protocol';
 
-type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'ready';
-
+type ConnectionState = 'disconnected' | 'connecting' | 'connected';
 type EventHandler = (...args: unknown[]) => void;
 
+const PING_INTERVAL_MS = 30_000;  // 30 seconds
+const PONG_TIMEOUT_MS = 10_000;  // 10 seconds
+const INITIAL_BACKOFF_MS = 1000;
+const MAX_BACKOFF_MS = 30_000;
+const MAX_FAILED_OPENS = 10;
+
 /**
- * RoomClient manages WebSocket connection, E2EE key exchange, and event emission.
- * Automatically performs E2EE key exchange on connection and emits 'ready' when encryption is established.
- * Implements exponential back-off reconnection (FR-104).
+ * RoomClient - WebSocket client with Session.seal/open for E2EE
+ * Every message is encrypted with Session (except join/ping control frames)
  */
-export default class RoomClient {
-  private roomId: string;
-  private peerId: string;
-  private displayName: string;
+export class RoomClient {
   private ws: WebSocket | null = null;
-  private keyPair: { publicKey: CryptoKey; privateKey: CryptoKey } | null = null;
-  private sharedKeys: Map<string, CryptoKey> = new Map();
-  private eventHandlers: Map<string, EventHandler[]> = new Map();
-  private connectionState: ConnectionState = 'disconnected';
-  private peers: Peer[] = [];
-  private expectedPeerCount: number = 0;
-  private initialPeerCountReceived: boolean = false;
-  
-  // Reconnection state (FR-104)
-  private autoReconnect: boolean = true;
-  private reconnectAttempts: number = 0;
-  private reconnectStartTime: number | null = null;
-  private reconnectTimeoutId: ReturnType<typeof setTimeout> | null = null;
-  private manualDisconnect: boolean = false;
+  private session: Session | null = null;
+  private peerId: string;
+  private state: ConnectionState = 'disconnected';
+  private handlers = new Map<string, EventHandler[]>();
+  private pingInterval: ReturnType<typeof setInterval> | null = null;
+  private pongTimeout: ReturnType<typeof setTimeout> | null = null;
+  private reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
+  private backoffMs = INITIAL_BACKOFF_MS;
+  private failedOpens = 0;
+  private roomSecret: Uint8Array | null = null;
+  private roomId: string | null = null;
 
-  constructor(roomId: string, peerId: string, displayName: string) {
+  constructor(
+    roomId: string,
+  ) {
+    this.peerId = newPeerId();
     this.roomId = roomId;
-    this.peerId = peerId;
-    this.displayName = displayName;
   }
 
-  /**
-   * Establishes WebSocket connection and initiates E2EE key exchange.
-   * Generates ECDH key pair, opens WebSocket, and broadcasts public key on connection.
-   */
-  async connect(): Promise<void> {
-    if (this.connectionState !== 'disconnected') {
-      console.warn('RoomClient: already connecting or connected');
+  private deriveWsUrl(): string {
+    // Use proxy when wsUrl is empty, otherwise use provided URL
+    if (!this.roomId) {
+      throw new Error('Missing roomId');
+    }
+    const loc = window.location;
+    const protocol = loc.protocol === 'https:' ? 'wss:' : 'ws:';
+    const host = loc.host;
+    return `${protocol}//${host}/ws/${this.roomId}?p=${this.peerId}`;
+  }
+
+  async connect(roomSecret: Uint8Array): Promise<void> {
+    if (this.state !== 'disconnected') {
+      throw new Error('Already connected or connecting');
+    }
+
+    this.roomSecret = roomSecret;
+    this.state = 'connecting';
+
+    await this.doConnect();
+  }
+
+  private async doConnect(): Promise<void> {
+    if (!this.roomSecret || !this.roomId) {
+      this.emit('error', new Error('Missing room credentials'));
       return;
     }
 
-    this.connectionState = 'connecting';
-
-    // Generate ECDH key pair (reuse if reconnecting with existing key)
-    if (!this.keyPair) {
-      this.keyPair = await generateKeyPair();
-    }
-
-    // Construct WebSocket URL (use relative path for deployment compatibility)
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const host = window.location.host;
-    const wsUrl = `${protocol}//${host}/ws/${this.roomId}?peerId=${encodeURIComponent(
-      this.peerId
-    )}&name=${encodeURIComponent(this.displayName)}`;
-
-    // Open WebSocket
-    this.ws = new WebSocket(wsUrl);
-
-    this.ws.onopen = async () => {
-      console.log('RoomClient: WebSocket connected');
-      this.connectionState = 'connected';
-      
-      // Reset reconnection state on successful connection
-      this.reconnectAttempts = 0;
-      this.reconnectStartTime = null;
-      
-      this.emit('connected');
-
-      // Broadcast public key for E2EE key exchange
-      if (this.keyPair) {
-        const publicKeyJwk = await exportPublicKey(this.keyPair.publicKey);
-        const keyExchangeMessage: WSMessage = {
-          type: 'key-exchange',
-          roomId: this.roomId,
-          peerId: this.peerId,
-          payload: {
-            peerId: this.peerId,
-            publicKey: publicKeyJwk,
-          } as KeyExchangeMessage,
-        };
-        this.ws?.send(JSON.stringify(keyExchangeMessage));
-      }
-
-      // Update roomStore with connection state
-      useRoomStore.getState().setRoomId(this.roomId);
-    };
-
-    this.ws.onmessage = (event) => {
-      this.handleMessage(event.data);
-    };
-
-    this.ws.onerror = (error) => {
-      console.error('RoomClient: WebSocket error', error);
-      this.emit('error', error);
-    };
-
-    this.ws.onclose = () => {
-      console.log('RoomClient: WebSocket closed');
-      const wasConnected = this.connectionState !== 'disconnected';
-      this.connectionState = 'disconnected';
-      this.emit('disconnected');
-      
-      // Attempt reconnection if not manually disconnected (FR-104)
-      if (wasConnected && this.autoReconnect && !this.manualDisconnect) {
-        this.scheduleReconnect();
-      }
-    };
-  }
-
-  /**
-   * Handles incoming WebSocket messages.
-   * Processes key-exchange, peer-joined, peer-left, and other message types.
-   */
-  private async handleMessage(data: string): Promise<void> {
     try {
-      const message: WSMessage = JSON.parse(data);
+      // Derive keys and create NEW Session for each connection
+      const { kEnc, joinToken } = await deriveRoomKeys(this.roomSecret, this.roomId);
+      this.session = new Session(kEnc, this.peerId);
+      this.failedOpens = 0;
 
-      switch (message.type) {
-        case 'key-exchange': {
-          const payload = message.payload as KeyExchangeMessage;
-          console.log(`RoomClient: received key-exchange from peer ${payload.peerId}`);
+      // Connect WebSocket
+      const url = this.deriveWsUrl();
+      this.ws = new WebSocket(url);
 
-          if (payload.peerId === this.peerId) {
-            // Ignore our own key exchange message
-            break;
-          }
+      this.ws.onopen = () => {
+        // Reset backoff on successful connection
+        this.backoffMs = INITIAL_BACKOFF_MS;
 
-          // Import peer's public key
-          const peerPublicKey = await importPublicKey(payload.publicKey);
+        // Send join (plaintext control frame)
+        this.ws!.send(JSON.stringify({ type: 'join', joinToken }));
 
-          // Derive shared secret
-          if (this.keyPair) {
-            const sharedKey = await deriveSharedSecret(
-              this.keyPair.privateKey,
-              peerPublicKey,
-              this.roomId
-            );
-            this.sharedKeys.set(payload.peerId, sharedKey);
+        // Start ping/pong
+        this.startPingPong();
+      };
 
-            console.log(
-              `RoomClient: derived shared key with peer ${payload.peerId}. Total keys: ${this.sharedKeys.size}`
-            );
+      this.ws.onmessage = async (event) => {
+        this.resetPongTimeout();
 
-            // Check ready state after key exchange
-            this.checkReadyState();
-          }
-          break;
-        }
-
-        case 'peer-joined': {
-          const payload = message.payload as { peer: Peer };
-          console.log(`RoomClient: peer-joined ${payload.peer.id}`);
-
-          // Add peer to local list
-          if (payload.peer.id !== this.peerId) {
-            this.peers.push(payload.peer);
-            
-            // Track expected peer count from initial batch (Fix #1: key exchange race)
-            if (!this.initialPeerCountReceived) {
-              this.expectedPeerCount++;
-            }
-            
-            // Re-broadcast our public key to the new peer
-            if (this.keyPair && this.connectionState !== 'disconnected') {
-              (async () => {
-                const publicKeyJwk = await exportPublicKey(this.keyPair!.publicKey);
-                const keyExchangeMessage: WSMessage = {
-                  type: 'key-exchange',
-                  roomId: this.roomId,
-                  peerId: this.peerId,
-                  payload: {
-                    peerId: this.peerId,
-                    publicKey: publicKeyJwk,
-                  } as KeyExchangeMessage,
-                };
-                this.ws?.send(JSON.stringify(keyExchangeMessage));
-              })();
-            }
-          }
-
-          // Update roomStore
-          useRoomStore.getState().setPeers([...this.peers]);
-
-          this.emit('peer-joined', payload.peer);
-          
-          // Mark initial peer count as received after first peer-joined
-          // (subsequent peer-joined events are for new arrivals)
-          if (!this.initialPeerCountReceived) {
-            // Use setTimeout to ensure all initial peer-joined messages are processed
-            setTimeout(() => {
-              this.initialPeerCountReceived = true;
-              this.checkReadyState();
-            }, 50);
-          }
-          break;
-        }
-
-        case 'peer-left': {
-          const payload = message.payload as { peerId: string };
-          console.log(`RoomClient: peer-left ${payload.peerId}`);
-
-          // Remove peer from local list
-          this.peers = this.peers.filter((p) => p.id !== payload.peerId);
-
-          // Remove shared key
-          this.sharedKeys.delete(payload.peerId);
-
-          // Update roomStore
-          useRoomStore.getState().setPeers([...this.peers]);
-
-          this.emit('peer-left', payload.peerId);
-          break;
-        }
-
-        default: {
-          // For other message types, decrypt if E2EE is ready and emit 'message' event
-          this.emit('message', message);
-          break;
-        }
-      }
-    } catch (error) {
-      console.error('RoomClient: error handling message', error);
-    }
-  }
-
-  /**
-   * Sends a message via WebSocket, with optional encryption.
-   * 
-   * NOTE: Multi-peer encryption deferred to M3. Current implementation only encrypts with first
-   * shared key (works for 2-peer rooms via ECDH symmetry). For >2 peers, choose one approach:
-   * 1. Per-peer encryption: add targetPeerId to protocol, route per-peer on server
-   * 2. Hybrid encryption: generate session key, encrypt it per-peer, encrypt bulk data once
-   * 3. Broadcast plaintext for non-sensitive data (presence/sync), per-peer for sensitive (chat)
-   * 
-   * @param type - Message type
-   * @param payload - Message payload
-   * @param encrypt - Whether to encrypt the payload (default: true, deferred to M3)
-   */
-  async sendMessage(type: string, payload: unknown, encrypt: boolean = true): Promise<void> {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      console.warn('RoomClient: cannot send message, WebSocket not open');
-      return;
-    }
-
-    let finalPayload = payload;
-
-    // TODO(M3): Implement multi-peer encryption before shipping encrypted production messages.
-    // Encrypt if requested and ready (currently only works for 2-peer rooms)
-    if (encrypt && this.connectionState === 'ready') {
-      const payloadJson = JSON.stringify(payload);
-      
-      if (this.sharedKeys.size > 0) {
-        // Encrypt with first shared key (2-peer room compatible)
-        const firstKey = this.sharedKeys.values().next().value;
-        const encrypted = await encryptMessage(firstKey, payloadJson);
-        finalPayload = encrypted;
-      }
-    }
-
-    const message: WSMessage = {
-      type: type as any,
-      roomId: this.roomId,
-      peerId: this.peerId,
-      payload: finalPayload,
-    };
-
-    this.ws.send(JSON.stringify(message));
-  }
-
-  /**
-   * Subscribes to an event.
-   * 
-   * @param event - Event name ('connected', 'peer-joined', 'peer-left', 'message', 'ready', 'disconnected', 'error')
-   * @param handler - Event handler function
-   * @returns Unsubscribe function
-   */
-  on(event: string, handler: EventHandler): () => void {
-    if (!this.eventHandlers.has(event)) {
-      this.eventHandlers.set(event, []);
-    }
-
-    const handlers = this.eventHandlers.get(event)!;
-    handlers.push(handler);
-
-    // Return unsubscribe function
-    return () => {
-      const index = handlers.indexOf(handler);
-      if (index !== -1) {
-        handlers.splice(index, 1);
-      }
-    };
-  }
-
-  /**
-   * Emits an event to all subscribed handlers.
-   */
-  private emit(event: string, ...args: unknown[]): void {
-    const handlers = this.eventHandlers.get(event);
-    if (handlers) {
-      handlers.forEach((handler) => {
         try {
-          handler(...args);
-        } catch (error) {
-          console.error(`RoomClient: error in ${event} handler`, error);
+          const data = JSON.parse(event.data);
+
+          // Control frames (plaintext)
+          if (data.type === 'join-ok') {
+            this.state = 'connected';
+            this.emit('connected', { role: data.role, peers: data.peers || [] });
+            return;
+          }
+
+          if (data.type === 'join-denied') {
+            this.emit('error', new Error(`Join denied: ${data.reason}`));
+            this.ws?.close();
+            return;
+          }
+
+          if (data.type === 'pong') {
+            // Pong received, keep alive
+            return;
+          }
+
+          if (data.type === 'presence') {
+            this.emit('presence', data);
+            return;
+          }
+
+          // Encrypted envelope - open with Session
+          if (data.v === 1) {
+            const envelope = data as Envelope;
+            const payload = await this.session!.open(envelope);
+
+            if (!payload) {
+              // Failed to open (replay, wrong key, etc.)
+              console.error('Session.open() failed for envelope:', envelope);
+              this.failedOpens++;
+              this.emit('decrypt-error', { envelope, error: 'Session.open returned null' });
+              
+              if (this.failedOpens >= MAX_FAILED_OPENS) {
+                this.emit('error', new Error('Too many failed decryptions'));
+                this.disconnect();
+              }
+              return;
+            }
+
+            console.log('Session.open() succeeded:', { type: envelope.t, payload });
+
+            // Emit as 'msg:' + type
+            this.emit(`msg:${envelope.t}`, { payload, envelope });
+          }
+        } catch (err) {
+          console.error('RoomClient message error:', err);
+          this.emit('decrypt-error', { error: String(err) });
         }
-      });
+      };
+
+      this.ws.onerror = () => {
+        this.emit('error', new Error('WebSocket error'));
+      };
+
+      this.ws.onclose = () => {
+        this.stopPingPong();
+
+        if (this.state !== 'disconnected') {
+          // Unexpected close - reconnect with backoff
+          this.state = 'disconnected';
+          this.emit('disconnected', {});
+          this.scheduleReconnect();
+        }
+      };
+    } catch (err) {
+      this.state = 'disconnected';
+      this.emit('error', err);
     }
   }
 
-  /**
-   * Closes WebSocket connection and clears state.
-   * @param manual - If true, prevents automatic reconnection
-   */
-  disconnect(manual: boolean = true): void {
-    this.manualDisconnect = manual;
-    
-    if (this.reconnectTimeoutId) {
-      clearTimeout(this.reconnectTimeoutId);
-      this.reconnectTimeoutId = null;
+  private startPingPong(): void {
+    this.pingInterval = setInterval(() => {
+      if (this.ws?.readyState === WebSocket.OPEN) {
+        this.ws.send(JSON.stringify({ type: 'ping' }));
+        
+        // Expect pong within timeout
+        this.pongTimeout = setTimeout(() => {
+          // No pong received - reconnect
+          this.ws?.close();
+        }, PONG_TIMEOUT_MS);
+      }
+    }, PING_INTERVAL_MS);
+  }
+
+  private stopPingPong(): void {
+    if (this.pingInterval) {
+      clearInterval(this.pingInterval);
+      this.pingInterval = null;
     }
-    
+    if (this.pongTimeout) {
+      clearTimeout(this.pongTimeout);
+      this.pongTimeout = null;
+    }
+  }
+
+  private resetPongTimeout(): void {
+    if (this.pongTimeout) {
+      clearTimeout(this.pongTimeout);
+      this.pongTimeout = null;
+    }
+  }
+
+  private scheduleReconnect(): void {
+    if (this.reconnectTimeout) return;
+
+    this.reconnectTimeout = setTimeout(() => {
+      this.reconnectTimeout = null;
+      this.doConnect();
+    }, this.backoffMs);
+
+    // Exponential backoff
+    this.backoffMs = Math.min(this.backoffMs * 2, MAX_BACKOFF_MS);
+  }
+
+  async send(type: string, payload: unknown): Promise<void> {
+    if (!this.session || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      throw new Error('Not connected');
+    }
+
+    const envelope = await this.session.seal(type, payload);
+    this.ws.send(JSON.stringify(envelope));
+  }
+
+  disconnect(): void {
+    this.state = 'disconnected';
+    this.stopPingPong();
+
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout);
+      this.reconnectTimeout = null;
+    }
+
     if (this.ws) {
-      this.ws.close();
+      this.ws.close(1000, 'Client disconnect');
       this.ws = null;
     }
 
-    this.sharedKeys.clear();
-    this.peers = [];
-    this.expectedPeerCount = 0;
-    this.initialPeerCountReceived = false;
-    this.connectionState = 'disconnected';
-    this.keyPair = null;
-
-    console.log('RoomClient: disconnected');
+    this.session = null;
   }
 
-  /**
-   * Schedules reconnection attempt with exponential back-off (FR-104).
-   * Retry delays: 1s, 2s, 4s, 8s, capped at 30s. Give up after 5 minutes.
-   */
-  private scheduleReconnect(): void {
-    // Initialize reconnection timer if not already started
-    if (this.reconnectStartTime === null) {
-      this.reconnectStartTime = Date.now();
+  on(event: string, handler: EventHandler): void {
+    if (!this.handlers.has(event)) {
+      this.handlers.set(event, []);
     }
-    
-    // Give up after 5 minutes
-    const elapsed = Date.now() - this.reconnectStartTime;
-    const fiveMinutes = 5 * 60 * 1000;
-    
-    if (elapsed > fiveMinutes) {
-      console.log('RoomClient: giving up reconnection after 5 minutes');
-      this.reconnectStartTime = null;
-      this.reconnectAttempts = 0;
-      return;
-    }
-    
-    // Calculate delay with exponential back-off, capped at 30s
-    const delay = Math.min(Math.pow(2, this.reconnectAttempts) * 1000, 30000);
-    
-    console.log(`RoomClient: scheduling reconnect attempt ${this.reconnectAttempts + 1} in ${delay}ms`);
-    
-    this.reconnectTimeoutId = setTimeout(() => {
-      this.reconnectAttempts++;
-      console.log(`RoomClient: attempting reconnect (attempt ${this.reconnectAttempts})`);
-      this.connect().catch(error => {
-        console.error('RoomClient: reconnect failed', error);
-      });
-    }, delay);
+    this.handlers.get(event)!.push(handler);
   }
 
-  /**
-   * Checks if E2EE ready state should be signaled.
-   * Ready = all expected peer keys have been exchanged.
-   */
-  private checkReadyState(): void {
-    // Only check ready state after initial peer count is established
-    if (!this.initialPeerCountReceived) {
-      return;
+  private emit(event: string, ...args: unknown[]): void {
+    const handlers = this.handlers.get(event);
+    if (handlers) {
+      for (const handler of handlers) {
+        handler(...args);
+      }
     }
-    
-    // Ready when we have shared keys with all expected peers
-    if (this.sharedKeys.size === this.expectedPeerCount && this.connectionState === 'connected') {
-      this.connectionState = 'ready';
-      console.log('RoomClient: E2EE ready - all keys exchanged');
-      this.emit('ready');
-    }
-  }
-
-  /**
-   * Gets current connection state.
-   */
-  getConnectionState(): ConnectionState {
-    return this.connectionState;
-  }
-
-  /**
-   * Gets list of connected peers.
-   */
-  getPeers(): Peer[] {
-    return [...this.peers];
   }
 }

@@ -7,14 +7,19 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "typecheck": "tsc --noEmit",
+    "pretest": "pnpm --filter @matinee/protocol build",
+    "test": "vitest",
     "clean": "node -e \"import('fs').then(fs => fs.rmSync('dist', {recursive: true, force: true}))\""
   },
   "dependencies": {
     "@matinee/protocol": "workspace:*"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261006.1",
     "typescript": "5.9.3",
+    "undici": "^8.11.2",
+    "vitest": "^5.0.4",
     "wrangler": "^4.9.0",
-    "@cloudflare/workers-types": "^5.20261006.1"
+    "ws": "^8.22.0"
   }
 }
