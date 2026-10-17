@@ -8,6 +8,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
+      '@matinee/protocol': path.resolve(__dirname, '../../packages/protocol/src/index.ts'),
     },
   },
   build: {
