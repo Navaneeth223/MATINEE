@@ -114,7 +114,7 @@ export default function RoomPage() {
       )}
       
       <button onClick={handleCopyInvite} data-invite-url="" style={{ marginBottom: '1rem', padding: '0.5rem 1rem' }}>
-        Copy invite link
+        Copy
       </button>
 
       <div
