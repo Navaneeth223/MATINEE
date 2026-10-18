@@ -62,10 +62,21 @@ export default function RoomPage() {
 
     client.on('connected', ({ role }: any) => {
       setStatus(`Connected (${role})`);
+      const statusEl = document.querySelector('[data-testid="status-text"]');
+      if (statusEl) {
+        if (role === 'creator') statusEl.setAttribute('data-testid-role', 'status-connected');
+        if (role === 'joiner') statusEl.setAttribute('data-testid-role', 'status-connected');
+      }
     });
 
     client.on('error', (err: any) => {
       setStatus(`Error: ${err.message}`);
+      const statusEl = document.querySelector('[data-testid="status-text"]');
+      if (statusEl && err.message.includes('full')) {
+        statusEl.setAttribute('data-testid-role', 'status-full');
+      } else if (statusEl && (err.message.includes('denied') || err.message.includes('Wrong secret'))) {
+        statusEl.setAttribute('data-testid-role', 'status-denied');
+      }
     });
 
     client.on('msg:chat', ({ payload, envelope }: any) => {
@@ -108,12 +119,12 @@ export default function RoomPage() {
   return (
     <div style={{ padding: '2rem', maxWidth: '800px', margin: '0 auto' }}>
       <h1>Room: {roomId}</h1>
-      <p>Status: {status}</p>
+      <p data-testid="status-text">Status: {status}</p>
       {decryptErrors > 0 && (
         <p style={{ color: 'red' }}>Decrypt errors: {decryptErrors}</p>
       )}
       
-      <button onClick={handleCopyInvite} data-invite-url="" style={{ marginBottom: '1rem', padding: '0.5rem 1rem' }}>
+      <button onClick={handleCopyInvite} data-testid="copy-invite" data-invite-url="" style={{ marginBottom: '1rem', padding: '0.5rem 1rem' }}>
         Copy
       </button>
 
@@ -128,20 +139,21 @@ export default function RoomPage() {
         }}
       >
         {messages.map((msg, i) => (
-          <div key={i}>{msg}</div>
+          <div key={i} data-testid="chat-message">{msg}</div>
         ))}
       </div>
 
       <div style={{ display: 'flex', gap: '0.5rem' }}>
         <input
           type="text"
+          data-testid="chat-input"
           value={inputText}
           onChange={(e) => setInputText(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && handleSend()}
           placeholder="Type a message..."
           style={{ flex: 1, padding: '0.5rem' }}
         />
-        <button onClick={handleSend} style={{ padding: '0.5rem 1rem' }}>
+        <button onClick={handleSend} data-testid="chat-send" style={{ padding: '0.5rem 1rem' }}>
           Send
         </button>
       </div>
