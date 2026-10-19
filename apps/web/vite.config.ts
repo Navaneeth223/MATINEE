@@ -18,14 +18,15 @@ export default defineConfig({
     format: 'es',
   },
   server: {
-    port: 5173,
+    port: process.env.VITE_PORT ? parseInt(process.env.VITE_PORT) : 5173,
+    strictPort: true,
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:8788',
+        target: process.env.VITE_API_PORT ? `http://127.0.0.1:${process.env.VITE_API_PORT}` : 'http://127.0.0.1:8788',
         changeOrigin: true,
       },
       '/ws': {
-        target: 'http://127.0.0.1:8788',
+        target: process.env.VITE_API_PORT ? `http://127.0.0.1:${process.env.VITE_API_PORT}` : 'http://127.0.0.1:8788',
         ws: true,
       },
     },
