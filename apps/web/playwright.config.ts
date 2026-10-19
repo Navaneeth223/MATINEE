@@ -11,7 +11,7 @@ export default defineConfig({
   ],
   webServer: [
     {
-      command: 'pnpm exec wrangler dev --config wrangler.test.toml',
+      command: 'pnpm exec wrangler dev --config wrangler.test.toml --persist-to .wrangler/state-test',
       cwd: '../edge',
       port: 8789,
       timeout: 120000,
