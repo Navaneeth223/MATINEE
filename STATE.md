@@ -1,12 +1,13 @@
 # Matinee State
 
 ## M2: E2EE Rooms (DONE)
-- Manual test PASSED (OWNER CHECK 1)
-- Automation debt: PW-01..04 need text-matching fixes (error messages), deferred
+- Manual test PASSED
 
-## Dev Setup
-- Dev: edge on 8788, web on 5173
-- Tests: edge on 8789 (wrangler.test.toml), web on 5199
+## SLICE 1: WebRTC Feasibility (DONE)
+- Loopback test: pcA -> pcB in same page, video + audio stream
+- Results: video 320x240, 80 frames decoded, currentTime advancing, audio level 10.5
+- **Volume independence CONFIRMED**: host local gain=0 does NOT affect received audio
+- Report: docs/spikes/S5.md
 
 ## Next
-- SLICE 1: WebRTC feasibility spike
+- SLICE 2: "From Me" core (file picker, perfect negotiation, remote control)
