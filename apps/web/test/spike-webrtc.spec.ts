@@ -25,7 +25,8 @@ test('SLICE 1 spike: WebRTC loopback with volume independence', async ({ page })
   expect(results.videoHeight).toBeGreaterThan(0);
   expect(results.currentTimeAdvancing).toBe(true);
   expect(results.framesDecoded).toBeGreaterThan(0);
-  expect(results.audioLevelBAfterHostMute).toBeGreaterThan(0); // Audio arrives even when host muted
+  expect(results.audioLevelBaseline).toBeGreaterThan(0);
+  expect(results.audioLevelAfterHostMute).toBeGreaterThanOrEqual(0.8 * results.audioLevelBaseline);
   expect(results.volumeIndependent).toBe(true);
   
   // Save to docs/spikes/S5.md
@@ -42,9 +43,9 @@ test('SLICE 1 spike: WebRTC loopback with volume independence', async ({ page })
 - B videoHeight: ${results.videoHeight}
 - B currentTime advancing: ${results.currentTimeAdvancing}
 - B framesDecoded: ${results.framesDecoded}
-- B audioLevel (initial): ${results.audioLevelB.toFixed(2)}
-- B audioLevel (host muted): ${results.audioLevelBAfterHostMute.toFixed(2)}
-- Volume independence: ${results.volumeIndependent ? 'PASS' : 'FAIL'}
+- B audioLevel baseline (gain=1): ${results.audioLevelBaseline.toFixed(2)}
+- B audioLevel after host mute (gain=0): ${results.audioLevelAfterHostMute.toFixed(2)}
+- Volume independence: ${results.volumeIndependent ? 'PASS' : 'FAIL'} (${(results.audioLevelAfterHostMute / results.audioLevelBaseline * 100).toFixed(0)}% retained)
 
 ## Conclusion
 ✓ Video arrives (width/height > 0, frames decoded)

@@ -1,13 +1,12 @@
 # Matinee State
 
-## M2: E2EE Rooms (DONE)
-- Manual test PASSED
+## M2: E2EE Rooms
+- Automated PW tests partly failing; manual owner check pending
 
-## SLICE 1: WebRTC Feasibility (DONE)
-- Loopback test: pcA -> pcB in same page, video + audio stream
-- Results: video 320x240, 80 frames decoded, currentTime advancing, audio level 10.5
-- **Volume independence CONFIRMED**: host local gain=0 does NOT affect received audio
-- Report: docs/spikes/S5.md
+## SLICE 1: WebRTC Loopback (Chromium, synthetic clip)
+- Test: pcA -> pcB same page, canvas + oscillator
+- NOT "feasibility confirmed": real-file capture, Safari decode, two-network unproven
 
 ## Next
-- SLICE 2: "From Me" core (file picker, perfect negotiation, remote control)
+- Fix volume test honestly (poll baseline, then measure at 80%+)
+- SLICE 2: "From Me" core

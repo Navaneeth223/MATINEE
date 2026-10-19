@@ -129,7 +129,7 @@ async function measureStats() {
   });
   results.framesDecoded = framesDecoded;
   
-  // Audio level on B (measure via analyser)
+  // Audio level on B - poll up to 3s for baseline with host gain 1
   const bAudioStream = videoB.srcObject;
   const bAudioCtx = new AudioContext();
   const bSource = bAudioCtx.createMediaStreamSource(bAudioStream);
@@ -137,17 +137,24 @@ async function measureStats() {
   bSource.connect(analyser);
   analyser.fftSize = 256;
   const dataArray = new Uint8Array(analyser.frequencyBinCount);
-  analyser.getByteFrequencyData(dataArray);
-  const avgLevel = dataArray.reduce((a,b)=>a+b,0) / dataArray.length;
-  results.audioLevelB = avgLevel;
+  
+  localGain.gain.value = 1.0;
+  let baseline = 0;
+  for (let i = 0; i < 30; i++) {
+    await new Promise(r => setTimeout(r, 100));
+    analyser.getByteFrequencyData(dataArray);
+    baseline = dataArray.reduce((a,b)=>a+b,0) / dataArray.length;
+    if (baseline > 0) break;
+  }
+  results.audioLevelBaseline = baseline;
   
   // Test volume independence: set host gain to 0
   localGain.gain.value = 0;
   await new Promise(r => setTimeout(r, 500));
   analyser.getByteFrequencyData(dataArray);
-  const avgLevelAfter = dataArray.reduce((a,b)=>a+b,0) / dataArray.length;
-  results.audioLevelBAfterHostMute = avgLevelAfter;
-  results.volumeIndependent = (avgLevelAfter > 0);
+  const afterMute = dataArray.reduce((a,b)=>a+b,0) / dataArray.length;
+  results.audioLevelAfterHostMute = afterMute;
+  results.volumeIndependent = (afterMute >= 0.8 * baseline);
   
   displayResults();
 }
@@ -160,9 +167,9 @@ Results:
   videoHeight: ${results.videoHeight}
   currentTime advancing: ${results.currentTimeAdvancing}
   framesDecoded: ${results.framesDecoded}
-  audioLevelB (initial): ${results.audioLevelB.toFixed(2)}
-  audioLevelB (host muted): ${results.audioLevelBAfterHostMute.toFixed(2)}
-  volume independent: ${results.volumeIndependent}
+  audioLevel baseline (gain=1): ${results.audioLevelBaseline.toFixed(2)}
+  audioLevel after host mute (gain=0): ${results.audioLevelAfterHostMute.toFixed(2)}
+  volume independent: ${results.volumeIndependent} (${(results.audioLevelAfterHostMute / results.audioLevelBaseline * 100).toFixed(0)}% retained)
   `;
   
   // Expose for test
