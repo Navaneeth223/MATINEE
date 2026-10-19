@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>WebRTC Loopback Spike</title>
+</head>
+<body>
+  <h1>WebRTC Loopback Spike</h1>
+  <div id="status">Starting...</div>
+  <div>
+    <video id="videoA" width="320" height="240" autoplay muted style="border:1px solid blue"></video>
+    <video id="videoB" width="320" height="240" autoplay style="border:1px solid red"></video>
+  </div>
+  <div id="stats" style="font-family:monospace; white-space:pre"></div>
+
+<script>
+const statusEl = document.getElementById('status');
+const statsEl = document.getElementById('stats');
+const videoA = document.getElementById('videoA');
+const videoB = document.getElementById('videoB');
+
+let pcA, pcB;
+let audioCtx, localGain, mediaStreamDest;
+let results = {};
+
+async function generateTestClip() {
+  // Canvas: 320x240, red square moving
+  const canvas = document.createElement('canvas');
+  canvas.width = 320;
+  canvas.height = 240;
+  const ctx = canvas.getContext('2d');
+  let x = 0;
+  
+  setInterval(() => {
+    ctx.fillStyle = 'black';
+    ctx.fillRect(0, 0, 320, 240);
+    ctx.fillStyle = 'red';
+    ctx.fillRect(x, 100, 40, 40);
+    x = (x + 5) % 320;
+  }, 50);
+  
+  const canvasStream = canvas.captureStream(20);
+  
+  // Oscillator: 440 Hz tone
+  audioCtx = new AudioContext();
+  const osc = audioCtx.createOscillator();
+  osc.frequency.value = 440;
+  osc.type = 'sine';
+  
+  // Local gain (host volume control)
+  localGain = audioCtx.createGain();
+  localGain.gain.value = 1.0;
+  
+  // Destination for sending (not affected by local gain)
+  mediaStreamDest = audioCtx.createMediaStreamDestination();
+  osc.connect(mediaStreamDest);
+  
+  // Local playback path (affected by local gain)
+  osc.connect(localGain);
+  localGain.connect(audioCtx.destination);
+  
+  osc.start();
+  
+  // Combine video + audio
+  const combined = new MediaStream([
+    ...canvasStream.getVideoTracks(),
+    ...mediaStreamDest.stream.getAudioTracks()
+  ]);
+  
+  return combined;
+}
+
+async function setupPeerConnection() {
+  try {
+    pcA = new RTCPeerConnection();
+    pcB = new RTCPeerConnection();
+  
+  // ICE candidates
+  pcA.onicecandidate = e => e.candidate && pcB.addIceCandidate(e.candidate);
+  pcB.onicecandidate = e => e.candidate && pcA.addIceCandidate(e.candidate);
+  
+  // B receives track
+  pcB.ontrack = (e) => {
+    statusEl.textContent = 'B receiving track...';
+    videoB.srcObject = e.streams[0];
+  };
+  
+  // A sends stream
+  const stream = await generateTestClip();
+  videoA.srcObject = stream;
+  stream.getTracks().forEach(track => pcA.addTrack(track, stream));
+  
+  // Negotiation
+  const offer = await pcA.createOffer();
+  await pcA.setLocalDescription(offer);
+  await pcB.setRemoteDescription(offer);
+  
+  const answer = await pcB.createAnswer();
+  await pcB.setLocalDescription(answer);
+  await pcA.setRemoteDescription(answer);
+  
+  statusEl.textContent = 'Peer connection established';
+  } catch (err) {
+    statusEl.textContent = 'Setup error: ' + err.message;
+    throw err;
+  }
+}
+
+async function measureStats() {
+  await new Promise(r => setTimeout(r, 3000)); // Wait for stream to stabilize
+  
+  // B video dimensions
+  results.videoWidth = videoB.videoWidth;
+  results.videoHeight = videoB.videoHeight;
+  
+  // B currentTime advancing
+  const t1 = videoB.currentTime;
+  await new Promise(r => setTimeout(r, 1000));
+  const t2 = videoB.currentTime;
+  results.currentTimeAdvancing = (t2 > t1);
+  
+  // Stats from B
+  const stats = await pcB.getStats();
+  let framesDecoded = 0;
+  stats.forEach(report => {
+    if (report.type === 'inbound-rtp' && report.kind === 'video') {
+      framesDecoded = report.framesDecoded || 0;
+    }
+  });
+  results.framesDecoded = framesDecoded;
+  
+  // Audio level on B (measure via analyser)
+  const bAudioStream = videoB.srcObject;
+  const bAudioCtx = new AudioContext();
+  const bSource = bAudioCtx.createMediaStreamSource(bAudioStream);
+  const analyser = bAudioCtx.createAnalyser();
+  bSource.connect(analyser);
+  analyser.fftSize = 256;
+  const dataArray = new Uint8Array(analyser.frequencyBinCount);
+  analyser.getByteFrequencyData(dataArray);
+  const avgLevel = dataArray.reduce((a,b)=>a+b,0) / dataArray.length;
+  results.audioLevelB = avgLevel;
+  
+  // Test volume independence: set host gain to 0
+  localGain.gain.value = 0;
+  await new Promise(r => setTimeout(r, 500));
+  analyser.getByteFrequencyData(dataArray);
+  const avgLevelAfter = dataArray.reduce((a,b)=>a+b,0) / dataArray.length;
+  results.audioLevelBAfterHostMute = avgLevelAfter;
+  results.volumeIndependent = (avgLevelAfter > 0);
+  
+  displayResults();
+}
+
+function displayResults() {
+  statusEl.textContent = 'Measurement complete';
+  statsEl.textContent = `
+Results:
+  videoWidth: ${results.videoWidth}
+  videoHeight: ${results.videoHeight}
+  currentTime advancing: ${results.currentTimeAdvancing}
+  framesDecoded: ${results.framesDecoded}
+  audioLevelB (initial): ${results.audioLevelB.toFixed(2)}
+  audioLevelB (host muted): ${results.audioLevelBAfterHostMute.toFixed(2)}
+  volume independent: ${results.volumeIndependent}
+  `;
+  
+  // Expose for test
+  window.spikeResults = results;
+}
+
+setupPeerConnection()
+  .then(() => {
+    statusEl.textContent = 'Waiting for measurements...';
+    return measureStats();
+  })
+  .catch(err => {
+    statusEl.textContent = 'ERROR: ' + err.message;
+    console.error(err);
+    window.spikeResults = { error: err.message };
+  });
+</script>
+</body>
+</html>
