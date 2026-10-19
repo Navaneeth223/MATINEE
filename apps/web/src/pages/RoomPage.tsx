@@ -3,6 +3,32 @@ import { useParams } from 'react-router-dom';
 import { RoomClient } from '../lib/room-client';
 import { fromB64u, toB64u } from '@matinee/protocol';
 
+// Read secret from hash ONCE before React can run effects twice
+function readAndStripSecret(roomId: string): Uint8Array | null {
+  // Check sessionStorage first (survives refresh, scoped to tab)
+  const stored = sessionStorage.getItem(`matinee-secret-${roomId}`);
+  if (stored) {
+    return fromB64u(stored);
+  }
+
+  // Read from hash
+  const fragment = window.location.hash;
+  const match = fragment.match(/k=([A-Za-z0-9_-]+)/);
+  
+  if (!match) return null;
+  
+  const secretB64 = match[1];
+  const secret = fromB64u(secretB64);
+  
+  // Store in sessionStorage
+  sessionStorage.setItem(`matinee-secret-${roomId}`, secretB64);
+  
+  // Strip hash immediately
+  window.history.replaceState(null, '', window.location.pathname + window.location.search);
+  
+  return secret;
+}
+
 export default function RoomPage() {
   const { roomId } = useParams<{ roomId: string }>();
   const [status, setStatus] = useState<string>('Reading secret...');
@@ -15,17 +41,16 @@ export default function RoomPage() {
   const handleCopyInvite = () => {
     if (!secretRef.current || !roomId) return;
     
-    // Build invite URL with secret in fragment
     const secret = toB64u(secretRef.current);
     const inviteUrl = `${window.location.origin}/r/${roomId}#k=${secret}`;
     
     // Store in data attribute for Playwright
-    const btn = document.querySelector('[data-invite-url]');
+    const btn = document.querySelector('[data-testid="copy-invite"]');
     if (btn) {
       btn.setAttribute('data-invite-url', inviteUrl);
     }
     
-    navigator.clipboard.writeText(inviteUrl).then(() => {
+    navigator.clipboard?.writeText(inviteUrl).then(() => {
       console.log('Invite URL copied:', inviteUrl);
     }).catch(err => {
       console.error('Copy failed:', err);
@@ -38,23 +63,14 @@ export default function RoomPage() {
       return;
     }
 
-    // Read secret from fragment
-    const fragment = window.location.hash;
-    const match = fragment.match(/k=([A-Za-z0-9_-]+)/);
-
-    if (!match) {
+    const secret = readAndStripSecret(roomId);
+    
+    if (!secret) {
       setStatus('Error: No secret in URL');
       return;
     }
 
-    const secretB64 = match[1];
-    const secret = fromB64u(secretB64);
     secretRef.current = secret;
-    secretB64Ref.current = secretB64;
-    roomIdRef.current = roomId;
-
-    // Strip fragment from URL (never send to server)
-    window.history.replaceState({}, '', window.location.pathname);
 
     // Connect
     const client = new RoomClient(roomId);
