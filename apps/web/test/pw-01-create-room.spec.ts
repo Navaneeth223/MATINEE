@@ -7,12 +7,9 @@ test('PW-01: A creates room, #k fragment removed from address bar', async () => 
 
   await page.goto('http://localhost:5199');
   await page.click('button:has-text("Create Room")');
-  await page.waitForURL(/\/r\//, { timeout: 5000 });
-  
-  await page.waitForTimeout(500); // Wait for replaceState
+  await expect(page).toHaveURL(/\/r\/[0-9A-Z]{10}$/, { timeout: 5000 });
   
   const url = page.url();
-  expect(url).toMatch(/\/r\/[0-9A-Z]{10}$/);
   expect(url).not.toContain('#k=');
   
   await page.click('[data-testid="copy-invite"]');

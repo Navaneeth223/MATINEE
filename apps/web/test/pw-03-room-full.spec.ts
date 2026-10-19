@@ -8,7 +8,7 @@ test('PW-03: C gets "room full" when A and B are connected', async () => {
 
   await pageA.goto('http://localhost:5199');
   await pageA.click('button:has-text("Create Room")');
-  await pageA.waitForURL(/\/r\//, { timeout: 5000 });
+  await expect(pageA).toHaveURL(/\/r\/[0-9A-Z]{10}$/, { timeout: 5000 });
   
   await pageA.click('[data-testid="copy-invite"]');
   const inviteUrl = await pageA.getAttribute('[data-testid="copy-invite"]', 'data-invite-url');

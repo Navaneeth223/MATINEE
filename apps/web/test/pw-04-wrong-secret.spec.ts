@@ -8,7 +8,7 @@ test('PW-04: D with wrong secret is refused', async () => {
 
   await pageA.goto('http://localhost:5199');
   await pageA.click('button:has-text("Create Room")');
-  await pageA.waitForURL(/\/r\//, { timeout: 5000 });
+  await expect(pageA).toHaveURL(/\/r\/[0-9A-Z]{10}$/, { timeout: 5000 });
   
   const roomUrl = pageA.url();
   const roomId = roomUrl.match(/\/r\/([^?#]+)/)?.[1];
