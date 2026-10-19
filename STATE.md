@@ -1,15 +1,17 @@
 # Matinee State
 
-## M2: E2EE Rooms  
-- Automated PW tests partly failing; manual owner check pending
+## Progress
+- M2 E2EE rooms: manual check pending, PW tests debt
+- SLICE 1 loopback: PASS (volume independence 127% retained)
+- Reload fix: PASS (sessionStorage secret, reconnects after refresh)
+- SLICE 2b: WebRTC client with perfect negotiation DONE
 
-## SLICE 1: WebRTC Loopback (Chromium, synthetic clip)
-- Volume test PASS: baseline 10.16, after host mute 12.87 (127% retained, >80% required)
-- NOT "feasibility confirmed": real-file capture, Safari decode, two-network unproven
+## In Progress  
+- SLICE 2c: File picker + captureStream + WebAudio branch
+- SLICE 2d: Remote control (pause/seek/±10s commands)
 
-## SLICE 2: "From Me" Core (IN PROGRESS)
-- 2a: Test helpers created (createRoom, joinRoom), PW-02..04 still failing (debt)
-- 2b: Next - WebRTC signaling through sealed relay
+## Next Command
+Implement complete RoomPage with file picker, WebRTC streaming, and remote control, then create PW-05..08 acceptance tests
 
-## Next
-- WebRTC signaling, file picker, remote control
+## Tokens
+~80k remaining, implementing final features for OWNER CHECK 2
