@@ -9,6 +9,8 @@ test('PW-01: A creates room, #k fragment removed from address bar', async () => 
   await page.click('button:has-text("Create Room")');
   await page.waitForURL(/\/r\//, { timeout: 5000 });
   
+  await page.waitForTimeout(500); // Wait for replaceState
+  
   const url = page.url();
   expect(url).toMatch(/\/r\/[0-9A-Z]{10}$/);
   expect(url).not.toContain('#k=');

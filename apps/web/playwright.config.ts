@@ -11,15 +11,16 @@ export default defineConfig({
   ],
   webServer: [
     {
-      command: 'cd ../edge && pnpm exec wrangler dev --config wrangler.test.toml',
-      url: 'http://127.0.0.1:8789',
-      timeout: 30000,
+      command: 'pnpm exec wrangler dev --config wrangler.test.toml',
+      cwd: '../edge',
+      port: 8789,
+      timeout: 120000,
       reuseExistingServer: false,
     },
     {
       command: 'pnpm exec vite --port 5199 --strictPort',
-      url: 'http://localhost:5199',
-      timeout: 30000,
+      port: 5199,
+      timeout: 120000,
       reuseExistingServer: false,
       env: {
         VITE_API_PORT: '8789',
