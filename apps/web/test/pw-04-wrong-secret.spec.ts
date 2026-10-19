@@ -1,15 +1,10 @@
 import { test, expect, chromium } from '@playwright/test';
+import { createRoom } from './helpers';
 
 test('PW-04: D with wrong secret is refused', async () => {
   const browser = await chromium.launch({ headless: true });
   
-  const contextA = await browser.newContext();
-  const pageA = await contextA.newPage();
-
-  await pageA.goto('http://localhost:5199');
-  await pageA.click('button:has-text("Create Room")');
-  await expect(pageA).toHaveURL(/\/r\/[0-9A-Z]{10}$/, { timeout: 5000 });
-  
+  const { pageA, contextA } = await createRoom(browser);
   const roomUrl = pageA.url();
   const roomId = roomUrl.match(/\/r\/([^?#]+)/)?.[1];
   
