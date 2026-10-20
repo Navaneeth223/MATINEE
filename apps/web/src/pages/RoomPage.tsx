@@ -89,27 +89,10 @@ export default function RoomPage() {
     }
   };
 
-  const handleStartWatching = () => {
-    if (remoteVideoRef.current) {
-      remoteVideoRef.current.muted = false;
-      remoteVideoRef.current.play();
-      setViewerReady(true);
-    }
-  };
-
   useEffect(() => {
-    if (!roomId) {
-      setStatus('Error: No room ID');
-      return;
-    }
+    if (!roomId || !secretRef.current) return;
 
-    const secret = readAndStripSecret(roomId);
-    if (!secret) {
-      setStatus('Error: No secret in URL');
-      return;
-    }
-    secretRef.current = secret;
-
+    const secret = secretRef.current;
     const client = new RoomClient(roomId);
     clientRef.current = client;
 
@@ -187,11 +170,40 @@ export default function RoomPage() {
       client.disconnect();
       audioCtxRef.current?.close();
     };
-  }, [roomId]);
+  }, [roomId, secretRef.current]);
 
   const handleViewerControl = (action: string, value?: number) => {
     if (!clientRef.current) return;
     clientRef.current.send('cmd', { action, value });
+  };
+
+  const handleCreate = async () => {
+    if (!roomId) return;
+    const secret = crypto.getRandomValues(new Uint8Array(32));
+    secretRef.current = secret;
+    sessionStorage.setItem(`matinee-secret-${roomId}`, toB64u(secret));
+    setStatus('Creating room...');
+    // Force useEffect re-run
+    setMessages([...messages]);
+  };
+
+  const handleJoin = () => {
+    const secret = readAndStripSecret(roomId!);
+    if (!secret) {
+      setStatus('No secret found in URL');
+      return;
+    }
+    secretRef.current = secret;
+    setStatus('Joining room...');
+    // Force useEffect re-run
+    setMessages([...messages]);
+  };
+
+  const handleStartWatching = async () => {
+    if (!remoteVideoRef.current) return;
+    remoteVideoRef.current.muted = false;
+    await remoteVideoRef.current.play();
+    setViewerReady(true);
   };
 
   const handleSend = async () => {
@@ -209,6 +221,17 @@ export default function RoomPage() {
     <div style={{ padding: '2rem', maxWidth: '1200px', margin: '0 auto' }}>
       <h1>Room: {roomId}</h1>
       <p data-testid="status-text">Status: {status} {rtcState && `(WebRTC: ${rtcState})`}</p>
+      
+      {status === 'Reading secret...' && (
+        <>
+          <button onClick={handleCreate} data-testid="create-room" style={{ margin: '0.5rem', padding: '0.5rem 1rem' }}>
+            Create
+          </button>
+          <button onClick={handleJoin} data-testid="join-room" style={{ margin: '0.5rem', padding: '0.5rem 1rem' }}>
+            Join
+          </button>
+        </>
+      )}
       
       <button onClick={handleCopyInvite} data-testid="copy-invite" data-invite-url="" style={{ marginBottom: '1rem', padding: '0.5rem 1rem' }}>
         Copy
@@ -232,6 +255,21 @@ export default function RoomPage() {
         <div style={{ marginTop: '1rem' }}>
           <h3>Your film (local)</h3>
           <video ref={videoRef} width="640" height="360" controls style={{ border: '2px solid blue' }} />
+          <div style={{ marginTop: '0.5rem' }}>
+            <button 
+              onClick={() => {
+                const video = videoRef.current;
+                if (!video) return;
+                video.muted = !video.muted;
+                if (localGainRef.current) {
+                  localGainRef.current.gain.value = video.muted ? 0 : 1;
+                }
+              }}
+              data-testid="mute-source"
+            >
+              {videoRef.current?.muted ? 'Unmute' : 'Mute'} local
+            </button>
+          </div>
         </div>
       )}
 
