@@ -29,6 +29,8 @@ export default function RoomPage() {
   const [isViewer, setIsViewer] = useState(false);
   const [viewerReady, setViewerReady] = useState(false);
   const [rtcState, setRtcState] = useState('');
+  const [sourceCurrentTime, setSourceCurrentTime] = useState(0);
+  const [sourcePaused, setSourcePaused] = useState(true);
   
   const clientRef = useRef<RoomClient | null>(null);
   const rtcClientRef = useRef<WebRTCClient | null>(null);
@@ -150,6 +152,31 @@ export default function RoomPage() {
     });
     rtcClientRef.current = rtcClient;
 
+    // Remote control: cmd messages
+    client.on('msg:cmd', async ({ payload }: any) => {
+      const video = videoRef.current;
+      if (!video || !isSource) return;
+
+      const { action, value } = payload;
+      if (action === 'play') await video.play();
+      else if (action === 'pause') video.pause();
+      else if (action === 'seek') video.currentTime = value;
+      else if (action === 'skip') video.currentTime += value;
+
+      // Send state update
+      clientRef.current?.send('state', {
+        currentTime: video.currentTime,
+        paused: video.paused,
+        duration: video.duration,
+      });
+    });
+
+    // Receive state updates
+    client.on('msg:state', ({ payload }: any) => {
+      setSourceCurrentTime(payload.currentTime || 0);
+      setSourcePaused(payload.paused !== false);
+    });
+
     setStatus('Connecting...');
     client.connect(secret).catch((err) => {
       setStatus(`Connection failed: ${err.message}`);
@@ -161,6 +188,11 @@ export default function RoomPage() {
       audioCtxRef.current?.close();
     };
   }, [roomId]);
+
+  const handleViewerControl = (action: string, value?: number) => {
+    if (!clientRef.current) return;
+    clientRef.current.send('cmd', { action, value });
+  };
 
   const handleSend = async () => {
     if (!clientRef.current || !inputText.trim()) return;
@@ -236,6 +268,14 @@ export default function RoomPage() {
             data-testid="remote-video"
             style={{ border: '2px solid red' }} 
           />
+          <div style={{ marginTop: '1rem' }}>
+            <p>Source position: {sourceCurrentTime.toFixed(1)}s {sourcePaused ? '(paused)' : '(playing)'}</p>
+            <button onClick={() => handleViewerControl('play')} data-testid="viewer-play">Play</button>
+            <button onClick={() => handleViewerControl('pause')} data-testid="viewer-pause">Pause</button>
+            <button onClick={() => handleViewerControl('skip', -10)} data-testid="viewer-back">-10s</button>
+            <button onClick={() => handleViewerControl('skip', 10)} data-testid="viewer-forward">+10s</button>
+            <button onClick={() => handleViewerControl('seek', 0)} data-testid="viewer-seek">Seek to 0</button>
+          </div>
         </div>
       )}
 
