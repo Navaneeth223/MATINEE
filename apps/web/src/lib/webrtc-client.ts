@@ -60,6 +60,11 @@ export class WebRTCClient {
     };
 
     this.roomClient.on('msg:sdp', async ({ payload }: any) => {
+      if (!payload || !payload.description) {
+        console.error('[WebRTCClient] Received SDP with invalid payload:', payload);
+        return;
+      }
+      
       const description = payload.description;
       console.log('[WebRTCClient] Received SDP:', description.type);
       const offerCollision =
