@@ -1,29 +1,30 @@
-## STATE (2026-10-10 17:00)
+## STATE (2026-10-10 17:30)
 
-| Commit | Done | Notes |
-|--------|------|-------|
-| d7f2364 | D0 ✓ | StrictMode bug fixed, E2E 3/3 |
-| 84e7ef2 | D1 fix | Sender/receiver logic, ICE timing |
-| a7e4736 | debug | Comprehensive console logging |
+| Commit | Fixed | Test Again |
+|--------|-------|------------|
+| c184dfa | WebRTC send() await | YES - main fix |
+| 7400aa8 | Sender sees own video | YES |
 
-## User Testing → Fixed
-- ✅ Both connected (D0)
-- ✅ "Relay needed" immediate → fixed (now only after 15s streaming)
-- ✅ Both see "Choose source" → fixed (sender vs receiver)
-- ⏳ Video not streaming → needs console check
-- ⏳ Chat payload empty → needs console check
+## Root Cause Found & Fixed
+**Error: Not connected at room-client.ts:222**
+- WebRTCClient was calling `roomClient.send('sdp', ...)` WITHOUT await
+- All send() calls now properly awaited
+- Added WebSocket state logging
 
-## Ready to Test
-User should:
-1. Open DevTools console (F12)
-2. Test streaming (film/screen)
-3. Share console logs showing WebRTC + Chat
+## User Must Test Again
+1. Refresh both browsers
+2. Connect (should still work ✓)
+3. Click "Film file" or "Share screen"  
+4. Start streaming
+5. **Check console** - should NOT see "Not connected" errors
+6. Partner should see "Start watching" button
+7. Click it - video should appear
 
-## TODO After Testing
-- Camera/mic with draggable face bubbles
-- Fullscreen video improvements
-- Settings panel
-- Deploy Vercel + Cloudflare
+## Next After Streaming Works
+1. Camera + Mic support
+2. Draggable face bubbles
+3. Settings panel
+4. Deploy to Vercel
 
 ## Context
-151K/200K
+157K/200K - critical fix done, awaiting user test
