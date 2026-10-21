@@ -8,7 +8,8 @@ describe('invite links', () => {
     const link = buildInviteLink('https://example.com', 'abc123', secret);
     
     const hashPart = link.split('#k=')[1];
-    expect(hashPart.length).toBe(22);
+    expect(hashPart).toBeDefined();
+    expect(hashPart!.length).toBe(22);
   });
 
   it('round-trip equals', () => {

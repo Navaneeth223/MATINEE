@@ -10,7 +10,7 @@ export function buildInviteLink(origin: string, roomId: string, secret: Uint8Arr
 
 export function parseInviteFragment(fragment: string): Uint8Array | null {
   const match = fragment.match(/k=([A-Za-z0-9_-]+)/);
-  if (!match) return null;
+  if (!match || !match[1]) return null;
   
   const secretB64 = match[1];
   try {
