@@ -1,45 +1,40 @@
 import type { DurableObjectState, DurableObjectNamespace } from '@cloudflare/workers-types';
 import type { Envelope } from '@matinee/protocol';
 
-/**
- * RoomDO - Durable Object for 2-peer E2EE room coordination
- * Per SPEC-M2B.md: joinToken auth, 2-peer cap, relay sealed envelopes only, 12h expiry
- */
-
 interface Env {
   ROOM_DO: DurableObjectNamespace;
 }
 
 interface RoomState {
-  joinTokenHash: string | null;  // sha256(joinToken), set on creation
+  joinTokenHash: string | null;
   createdAt: number;
   lastActiveAt: number;
-  maxPeers: number;  // always 2
-  admitted: string[];  // peerIds that passed joinToken check
+  maxPeers: number;
 }
 
 interface SocketAttachment {
   peerId: string;
   admitted: boolean;
-  lastSeenAt: number;  // timestamp of last valid frame
-  connectedAt: number;  // timestamp when socket connected
+  lastSeenAt: number;
+  connectedAt: number;
   bucket: {
-    t: number;  // last refill timestamp
-    n: number;  // tokens (float)
+    t: number;
+    n: number;
   };
 }
 
-const IDLE_EXPIRY_MS = 12 * 60 * 60 * 1000;  // 12 hours
+const IDLE_EXPIRY_MS = 12 * 60 * 60 * 1000;
 const RATE_LIMIT_BURST = 40;
-const RATE_LIMIT_SUSTAINED = 20;  // msgs/sec
-const MAX_FRAME_SIZE = 64 * 1024;  // 64 KiB
+const RATE_LIMIT_SUSTAINED = 20;
+const MAX_FRAME_SIZE = 64 * 1024;
 const MAX_SOCKETS = 4;
-const PERSIST_INTERVAL_MS = 5 * 60 * 1000;  // 5 minutes
+const PERSIST_INTERVAL_MS = 5 * 60 * 1000;
+const UNADMITTED_TIMEOUT_MS = 10000;
 
 const RE_PEER = /^[0-9a-f]{16}$/;
 const RE_SID = /^[0-9a-f]{8}$/;
 const RE_TYPE = /^[a-z0-9._-]{1,32}$/;
-const RE_IV_MAX = 32;  // max iv length in chars
+const RE_IV_MAX = 32;
 const MAX_CT_CHARS = 1_400_000;
 
 export class RoomDO {
@@ -47,16 +42,10 @@ export class RoomDO {
   private env: Env;
   private lastActiveAt: number = Date.now();
   private lastPersistAt: number = 0;
-  private UNADMITTED_TIMEOUT_MS: number;
-  private HALF_OPEN_TIMEOUT_MS: number;
 
   constructor(state: DurableObjectState, env: Env) {
     this.state = state;
     this.env = env;
-    
-    // Read timeouts from env vars (for testing), default to production values
-    this.UNADMITTED_TIMEOUT_MS = parseInt((env as any).UNADMITTED_TIMEOUT_MS || '10000', 10);
-    this.HALF_OPEN_TIMEOUT_MS = parseInt((env as any).HALF_OPEN_TIMEOUT_MS || '60000', 10);
     
     this.state.blockConcurrencyWhile(async () => {
       const roomState = await this.getRoomState();
@@ -135,13 +124,11 @@ export class RoomDO {
         return;
       }
 
-      // Validate: either a control frame or a valid Envelope
       if (this.isControlFrame(frame)) {
         await this.handleControlFrame(ws, frame, attachment);
       } else if (this.isValidEnvelope(frame)) {
         await this.relayEnvelope(ws, frame as Envelope, attachment);
       } else {
-        // Drop invalid frames silently (per spec: server validates shape, never reads ct)
         return;
       }
 
@@ -162,25 +149,19 @@ export class RoomDO {
 
   private async cleanupSocket(ws: WebSocket): Promise<void> {
     const attachment = ws.deserializeAttachment() as SocketAttachment;
-    if (!attachment) return;
+    if (!attachment || !attachment.admitted) return;
 
-    const roomState = await this.getRoomState();
-    if (roomState && attachment.admitted) {
-      roomState.admitted = roomState.admitted.filter(id => id !== attachment.peerId);
-      await this.state.storage.put('state', roomState);
-      
-      // Notify other admitted peers ONLY if this socket was admitted
-      const sockets = this.state.getWebSockets();
-      for (const sock of sockets) {
-        if (sock === ws) continue;
-        const otherAttachment = sock.deserializeAttachment() as SocketAttachment;
-        if (otherAttachment?.admitted) {
-          sock.send(JSON.stringify({
-            type: 'presence',
-            peerId: attachment.peerId,
-            status: 'left',
-          }));
-        }
+    // Notify other admitted peers
+    const sockets = this.state.getWebSockets();
+    for (const sock of sockets) {
+      if (sock === ws) continue;
+      const otherAttachment = sock.deserializeAttachment() as SocketAttachment;
+      if (otherAttachment?.admitted) {
+        sock.send(JSON.stringify({
+          type: 'presence',
+          peerId: attachment.peerId,
+          status: 'left',
+        }));
       }
     }
 
@@ -190,7 +171,6 @@ export class RoomDO {
   async alarm(): Promise<void> {
     const now = Date.now();
     
-    // Check for expired room
     const idleTime = now - this.lastActiveAt;
     if (idleTime >= IDLE_EXPIRY_MS) {
       const sockets = this.state.getWebSockets();
@@ -201,7 +181,6 @@ export class RoomDO {
       return;
     }
 
-    // Close unadmitted sockets that exceeded timeout
     const sockets = this.state.getWebSockets();
     let nextUnadmittedDeadline: number | null = null;
     
@@ -210,17 +189,16 @@ export class RoomDO {
       if (!attachment || attachment.admitted) continue;
 
       const age = now - attachment.connectedAt;
-      if (age >= this.UNADMITTED_TIMEOUT_MS) {
+      if (age >= UNADMITTED_TIMEOUT_MS) {
         sock.close(1008, 'Admission timeout');
       } else {
-        const deadline = attachment.connectedAt + this.UNADMITTED_TIMEOUT_MS;
+        const deadline = attachment.connectedAt + UNADMITTED_TIMEOUT_MS;
         if (!nextUnadmittedDeadline || deadline < nextUnadmittedDeadline) {
           nextUnadmittedDeadline = deadline;
         }
       }
     }
 
-    // Schedule next alarm
     const idleDeadline = this.lastActiveAt + IDLE_EXPIRY_MS;
     const nextAlarm = nextUnadmittedDeadline && nextUnadmittedDeadline < idleDeadline
       ? nextUnadmittedDeadline
@@ -258,7 +236,6 @@ export class RoomDO {
   }
 
   private async handleJoin(ws: WebSocket, frame: any, attachment: SocketAttachment): Promise<void> {
-    // Ignore duplicate joins from already-admitted sockets
     if (attachment.admitted) {
       return;
     }
@@ -270,14 +247,22 @@ export class RoomDO {
       return;
     }
 
-    // Hash the joinToken
     const encoder = new TextEncoder();
     const digest = await crypto.subtle.digest('SHA-256', encoder.encode(joinToken));
     const hash = btoa(String.fromCharCode(...new Uint8Array(digest))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
-    // Get room state (no await between get and put)
     const roomState = await this.getRoomState();
     const now = Date.now();
+    const sockets = this.state.getWebSockets();
+
+    // Count DISTINCT admitted peerIds among LIVE sockets
+    const liveAdmitted = new Set<string>();
+    for (const sock of sockets) {
+      const att = sock.deserializeAttachment() as SocketAttachment;
+      if (att?.admitted) {
+        liveAdmitted.add(att.peerId);
+      }
+    }
 
     // First joiner: create room
     if (!roomState) {
@@ -286,7 +271,6 @@ export class RoomDO {
         createdAt: now,
         lastActiveAt: now,
         maxPeers: 2,
-        admitted: [attachment.peerId],
       };
       await this.state.storage.put('state', newState);
 
@@ -295,52 +279,67 @@ export class RoomDO {
 
       await this.state.storage.setAlarm(now + IDLE_EXPIRY_MS);
 
+      console.log(`join peer=${attachment.peerId.slice(0, 6)} live=${liveAdmitted.size + 1} result=ok`);
       ws.send(JSON.stringify({ type: 'join-ok', role: 'creator', peers: [] }));
       return;
     }
 
     // Check joinToken matches
     if (hash !== roomState.joinTokenHash) {
+      console.log(`join peer=${attachment.peerId.slice(0, 6)} live=${liveAdmitted.size} result=wrong`);
       ws.send(JSON.stringify({ type: 'join-denied', reason: 'Wrong secret' }));
       ws.close(1008, 'Wrong secret');
       return;
     }
 
-    // Check capacity - if full, evict half-open sockets
-    if (roomState.admitted.length >= roomState.maxPeers) {
-      await this.evictHalfOpenSockets(roomState);
-      
-      // Re-check after eviction
-      if (roomState.admitted.length >= roomState.maxPeers) {
-        ws.send(JSON.stringify({ type: 'join-denied', reason: 'Room full' }));
-        ws.close(1008, 'Room full');
-        return;
+    // Same peerId rejoining: close old socket
+    let replaced = false;
+    for (const sock of sockets) {
+      if (sock === ws) continue;
+      const att = sock.deserializeAttachment() as SocketAttachment;
+      if (att?.peerId === attachment.peerId) {
+        sock.close(1000, 'replaced');
+        replaced = true;
+        break;
       }
     }
 
-    // Admit
-    roomState.admitted.push(attachment.peerId);
-    roomState.lastActiveAt = now;
-    await this.state.storage.put('state', roomState);
+    // Recount after replacement
+    if (replaced) {
+      liveAdmitted.delete(attachment.peerId);
+    }
 
+    // Check capacity
+    if (liveAdmitted.size >= roomState.maxPeers) {
+      console.log(`join peer=${attachment.peerId.slice(0, 6)} live=${liveAdmitted.size} result=full`);
+      ws.send(JSON.stringify({ type: 'join-denied', reason: 'Room full' }));
+      ws.close(1008, 'Room full');
+      return;
+    }
+
+    // Admit
     attachment.admitted = true;
     ws.serializeAttachment(attachment);
 
-    // Send join-ok with existing peer list
-    const otherPeers = roomState.admitted.filter(id => id !== attachment.peerId);
-    ws.send(JSON.stringify({ type: 'join-ok', role: 'joiner', peers: otherPeers }));
+    roomState.lastActiveAt = now;
+    await this.state.storage.put('state', roomState);
 
-    // Notify other peers
-    const sockets = this.state.getWebSockets();
-    for (const sock of sockets) {
-      if (sock === ws) continue;
-      const otherAttachment = sock.deserializeAttachment() as SocketAttachment;
-      if (otherAttachment?.admitted) {
-        sock.send(JSON.stringify({
-          type: 'presence',
-          peerId: attachment.peerId,
-          status: 'joined',
-        }));
+    const otherPeers = Array.from(liveAdmitted);
+    console.log(`join peer=${attachment.peerId.slice(0, 6)} live=${liveAdmitted.size + 1} result=${replaced ? 'replaced' : 'ok'}`);
+    ws.send(JSON.stringify({ type: 'join-ok', role: liveAdmitted.size === 0 ? 'creator' : 'joiner', peers: otherPeers }));
+
+    // Notify other peers (skip if replacement)
+    if (!replaced) {
+      for (const sock of sockets) {
+        if (sock === ws) continue;
+        const otherAttachment = sock.deserializeAttachment() as SocketAttachment;
+        if (otherAttachment?.admitted) {
+          sock.send(JSON.stringify({
+            type: 'presence',
+            peerId: attachment.peerId,
+            status: 'joined',
+          }));
+        }
       }
     }
   }
@@ -348,10 +347,8 @@ export class RoomDO {
   private async relayEnvelope(ws: WebSocket, envelope: Envelope, attachment: SocketAttachment): Promise<void> {
     if (!attachment.admitted) return;
 
-    // Validate from matches sender
     if (envelope.from !== attachment.peerId) return;
 
-    // Rebuild envelope with only allowed fields (strip extra fields)
     const relayedEnvelope: Envelope = {
       v: 1,
       t: envelope.t,
@@ -373,7 +370,6 @@ export class RoomDO {
       const otherAttachment = sock.deserializeAttachment() as SocketAttachment;
       if (!otherAttachment?.admitted) continue;
 
-      // Send to specific peer or broadcast to all admitted
       if (!targetPeerId || otherAttachment.peerId === targetPeerId) {
         sock.send(serialized);
         if (targetPeerId) break;
@@ -389,7 +385,7 @@ export class RoomDO {
     attachment.bucket.n = Math.min(RATE_LIMIT_BURST, attachment.bucket.n + refill);
     attachment.bucket.t = now;
 
-    const cost = bytes / 1024;  // 1 token per KiB
+    const cost = bytes / 1024;
 
     if (attachment.bucket.n < cost) {
       return false;
@@ -407,7 +403,6 @@ export class RoomDO {
     const now = Date.now();
     this.lastActiveAt = now;
     
-    // Persist at most every 5 minutes
     if (now - this.lastPersistAt >= PERSIST_INTERVAL_MS) {
       this.lastPersistAt = now;
       this.persistActivity();
@@ -424,46 +419,12 @@ export class RoomDO {
 
   private scheduleUnadmittedCheck(): void {
     const now = Date.now();
-    const nextCheck = now + this.UNADMITTED_TIMEOUT_MS;
+    const nextCheck = now + UNADMITTED_TIMEOUT_MS;
     
-    // Set alarm if not already set or if this check is sooner
     this.state.storage.getAlarm().then((existing) => {
       if (!existing || nextCheck < existing) {
         this.state.storage.setAlarm(nextCheck);
       }
     });
-  }
-
-  private async evictHalfOpenSockets(roomState: RoomState): Promise<void> {
-    const now = Date.now();
-    const sockets = this.state.getWebSockets();
-    
-    // Find admitted sockets that are silent for >timeout
-    for (const sock of sockets) {
-      const attachment = sock.deserializeAttachment() as SocketAttachment;
-      if (!attachment?.admitted) continue;
-
-      if (now - attachment.lastSeenAt >= this.HALF_OPEN_TIMEOUT_MS) {
-        // Remove from admitted list
-        roomState.admitted = roomState.admitted.filter(id => id !== attachment.peerId);
-        sock.close(1008, 'Evicted (half-open)');
-      }
-    }
-  }
-
-  private enforceSocketCap(): void {
-    const sockets = this.state.getWebSockets();
-    if (sockets.length <= MAX_SOCKETS) return;
-
-    // Close oldest unadmitted sockets
-    const unadmitted = sockets
-      .map(sock => ({ sock, attachment: sock.deserializeAttachment() as SocketAttachment }))
-      .filter(({ attachment }) => attachment && !attachment.admitted)
-      .sort((a, b) => a.attachment.connectedAt - b.attachment.connectedAt);
-
-    const excess = sockets.length - MAX_SOCKETS;
-    for (let i = 0; i < Math.min(excess, unadmitted.length); i++) {
-      unadmitted[i].sock.close(1008, 'Socket limit');
-    }
   }
 }
