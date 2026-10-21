@@ -1,0 +1,15 @@
+{
+  "verdict": "CHANGES_REQUESTED",
+  "findings": [
+    {
+      "severity": "HIGH",
+      "message": "msg:sdp handler missing try-catch wrapper - unhandled promise rejections will cause silent connection failures",
+      "file": "apps/web/src/lib/webrtc-client.ts",
+      "line": "82-128",
+      "triggering_path": "When setRemoteDescription(), setLocalDescription(), or roomClient.send() throw due to invalid SDP, incompatible codecs, state mismatch, or network failure",
+      "consequence": "User sees no error explanation, isSettingRemoteAnswerPending flag stuck, connection appears hung with no diagnostic info",
+      "suggestion": "Wrap the entire async handler body in try-catch block. In catch block: (1) log error with context, (2) reset isSettingRemoteAnswerPending to false, (3) optionally emit connection-error event. Follow the pattern used in onnegotiationneeded (lines 70-81) and createOffer (lines 188-199) which both have try-catch-finally."
+    }
+  ],
+  "reviewDoc": "d:\\Portfolio_Projects\\testantigravity\\MATINEE\\.agents\\tasks\\streaming-review-doc.md"
+}
