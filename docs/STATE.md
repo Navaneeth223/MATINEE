@@ -1,36 +1,10 @@
-# Project State Log
+# Project State
 
-## 2026-10-10 21:05 UTC - M2b Crypto Implementation
+## Completed
+**SLICE 2 "From Me" — WebRTC streaming with E2EE rooms**: Two browsers connect via WebSocket relay (apps/edge), exchange sealed messages (16-byte secret, AES-GCM-256), negotiate WebRTC with perfect negotiation pattern, stream video+audio from source to viewer. Source uses WebAudio branch (MediaElementSource → localGain → speakers + MediaStreamDestination → peer) so local volume never affects stream. Viewer has play/pause/seek controls (send 'cmd', source executes, replies 'state'), volume 0-100% + boost to 300% with DynamicsCompressor limiter, settings saved per device. Dark theme (#08070B bg, #E7C98E accent). Room flow: create room → copy invite (22-char secret) → partner joins → hash stripped for all users → chat (You/Partner, Enter sends) → stream film. ICE: Cloudflare+Google STUN; 15s timeout shows "relay needed" warning. Format Doctor detects AC-3/Dolby audio, shows ffmpeg command. Session survives reload (secret in sessionStorage per room, stable peerId per tab+room). Protocol tests: 28/28 vitest pass. Build: tsc clean, vite build passes.
 
-**CORRECTION:** Earlier claims that "tests pass" were wrong. No test runner was installed initially.
+## Current blockers
+None. Manual testing required (no Playwright budget).
 
-- Installed vitest@5.0.3 as devDependency in apps/web
-- Created crypto.test.ts with 5 tests
-- **Fixed critical bugs:**
-  1. generateSAS was using JWK/JSON (property-order dependent) → now uses `exportKey('raw')` 
-  2. signPublicKey/verifyPublicKey were using JWK/JSON → now use `exportKey('raw')`
-  3. Added test proving same key with different JWK property order gives same signature/SAS
-
-**Test results (2026-10-10 21:04:32):**
-```
-Test Files  1 passed (1)
-     Tests  5 passed (5)
-Duration  1.74s
-
-✓ produces different words for different session public keys 28ms
-✓ produces the same words regardless of key order (deterministic) 2ms  
-✓ produces different words for different roomIds 1ms
-✓ uses raw key bytes (property order independent) 2ms
-✓ signPublicKey uses raw key bytes (property order independent) 8ms
-```
-
-**Why raw bytes matter:** JWK property order varies between `crypto.subtle.exportKey()` calls. Two exports of the same key can produce `{"x":"...","y":"..."}` or `{"y":"...","x":"..."}`. Hashing JSON would give different results. Raw bytes are canonical.
-
-**Files modified:**
-- `apps/web/src/lib/crypto.ts`: generateSAS, signPublicKey, verifyPublicKey now use `exportKey('raw')`
-- `apps/web/src/lib/crypto.test.ts`: Updated tests to use CryptoKey instead of JWK
-- `apps/web/src/lib/bip39-words.ts`: Created (2048 BIP39 words, MIT license)
-- `docs/LICENSES.md`: Created (documents BIP39 license)
-- `apps/web/package.json`: Added vitest dev dependency
-
-**Next:** room-do.ts integration tests with wrangler dev
+## Next
+Manual test per docs/MANUAL-TEST.md (two windows, then second device). If pass: deploy apps/edge to Cloudflare, update DEPLOY.md with URL.
