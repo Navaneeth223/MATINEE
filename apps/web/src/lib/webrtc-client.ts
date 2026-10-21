@@ -35,9 +35,13 @@ export class WebRTCClient {
       options.onConnectionState(this.pc.connectionState);
     };
 
-    this.pc.onicecandidate = ({ candidate }) => {
+    this.pc.onicecandidate = async ({ candidate }) => {
       if (candidate) {
-        this.roomClient.send('ice', { candidate: candidate.toJSON() });
+        try {
+          await this.roomClient.send('ice', { candidate: candidate.toJSON() });
+        } catch (err) {
+          console.error('[WebRTCClient] Failed to send ICE candidate:', err);
+        }
       }
     };
 
@@ -47,9 +51,9 @@ export class WebRTCClient {
         this.makingOffer = true;
         await this.pc.setLocalDescription();
         console.log('[WebRTCClient] Sending offer/answer:', this.pc.localDescription?.type);
-        this.roomClient.send('sdp', { description: this.pc.localDescription!.toJSON() });
+        await this.roomClient.send('sdp', { description: this.pc.localDescription!.toJSON() });
       } catch (err) {
-        console.error('Negotiation error:', err);
+        console.error('[WebRTCClient] Negotiation error:', err);
       } finally {
         this.makingOffer = false;
       }
@@ -76,7 +80,7 @@ export class WebRTCClient {
       if (description.type === 'offer') {
         await this.pc.setLocalDescription();
         console.log('[WebRTCClient] Sending answer');
-        this.roomClient.send('sdp', { description: this.pc.localDescription!.toJSON() });
+        await this.roomClient.send('sdp', { description: this.pc.localDescription!.toJSON() });
       }
     });
 

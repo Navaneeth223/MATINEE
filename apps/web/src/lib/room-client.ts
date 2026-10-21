@@ -74,6 +74,7 @@ export class RoomClient {
       this.ws = new WebSocket(url);
 
       this.ws.onopen = () => {
+        console.log('[RoomClient] WebSocket OPEN');
         // Reset backoff on successful connection
         this.backoffMs = INITIAL_BACKOFF_MS;
 
@@ -158,12 +159,14 @@ export class RoomClient {
       };
 
       this.ws.onclose = () => {
+        console.log('[RoomClient] WebSocket CLOSED, state was:', this.state);
         this.stopPingPong();
 
         if (this.state !== 'disconnected') {
           // Unexpected close - reconnect with backoff
           this.state = 'disconnected';
           this.emit('disconnected', {});
+          console.log('[RoomClient] Scheduling reconnect in', this.backoffMs, 'ms');
           this.scheduleReconnect();
         }
       };
@@ -218,12 +221,19 @@ export class RoomClient {
   }
 
   async send(type: string, payload: unknown): Promise<void> {
-    if (!this.session || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      throw new Error('Not connected');
+    if (!this.session || !this.ws) {
+      console.error('[RoomClient] send() called but no session or ws');
+      throw new Error('Not connected - no session or websocket');
+    }
+    
+    if (this.ws.readyState !== WebSocket.OPEN) {
+      console.error('[RoomClient] send() called but WebSocket state:', this.ws.readyState, 'type:', type);
+      throw new Error(`Not connected - WebSocket state: ${this.ws.readyState}`);
     }
 
     const envelope = await this.session.seal(type, payload);
     this.ws.send(JSON.stringify(envelope));
+    console.log('[RoomClient] Sent:', type);
   }
 
   disconnect(): void {
