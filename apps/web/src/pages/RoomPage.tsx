@@ -30,10 +30,14 @@ export default function RoomPage() {
         { urls: 'stun:stun.l.google.com:19302' },
       ],
       onTrack: (stream) => {
+        console.log('[RoomPage] Remote stream received:', stream.id, 'tracks:', stream.getTracks().length);
         setRemoteStream(stream);
       },
       onConnectionState: (state) => {
-        console.log('WebRTC state:', state);
+        console.log('[RoomPage] WebRTC state:', state);
+        if (state === 'connected') {
+          setIceTimeout(false);
+        }
       },
     });
     rtcClientRef.current = rtcClient;
@@ -100,17 +104,20 @@ export default function RoomPage() {
   };
 
   const handleStreamReady = (stream: MediaStream, video?: HTMLVideoElement) => {
+    console.log('[RoomPage] Stream ready:', stream.id, 'tracks:', stream.getTracks().length, 'video:', !!video);
     if (video) sourceVideoRef.current = video;
     setIsStreaming(true);
     
     if (rtcClientRef.current) {
       stream.getTracks().forEach(track => {
+        console.log('[RoomPage] Adding track:', track.kind, track.id);
         rtcClientRef.current!.addTrack(track, stream);
       });
       
       // Start ICE timeout check ONLY when streaming starts
       const timeout = setTimeout(() => {
         if (rtcClientRef.current?.getConnectionState() !== 'connected') {
+          console.warn('[RoomPage] ICE timeout - not connected after 15s');
           setIceTimeout(true);
         }
       }, 15000);

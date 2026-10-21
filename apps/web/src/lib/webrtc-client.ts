@@ -43,8 +43,10 @@ export class WebRTCClient {
 
     this.pc.onnegotiationneeded = async () => {
       try {
+        console.log('[WebRTCClient] Negotiation needed');
         this.makingOffer = true;
         await this.pc.setLocalDescription();
+        console.log('[WebRTCClient] Sending offer/answer:', this.pc.localDescription?.type);
         this.roomClient.send('sdp', { description: this.pc.localDescription!.toJSON() });
       } catch (err) {
         console.error('Negotiation error:', err);
@@ -55,19 +57,25 @@ export class WebRTCClient {
 
     this.roomClient.on('msg:sdp', async ({ payload }: any) => {
       const description = payload.description;
+      console.log('[WebRTCClient] Received SDP:', description.type);
       const offerCollision =
         description.type === 'offer' &&
         (this.makingOffer || this.pc.signalingState !== 'stable');
 
       this.ignoreOffer = offerCollision;
-      if (this.ignoreOffer) return;
+      if (this.ignoreOffer) {
+        console.log('[WebRTCClient] Ignoring offer due to collision');
+        return;
+      }
 
       this.isSettingRemoteAnswerPending = description.type === 'answer';
       await this.pc.setRemoteDescription(description);
+      console.log('[WebRTCClient] Remote description set, signaling:', this.pc.signalingState);
       this.isSettingRemoteAnswerPending = false;
 
       if (description.type === 'offer') {
         await this.pc.setLocalDescription();
+        console.log('[WebRTCClient] Sending answer');
         this.roomClient.send('sdp', { description: this.pc.localDescription!.toJSON() });
       }
     });
@@ -84,6 +92,7 @@ export class WebRTCClient {
   }
 
   async addTrack(track: MediaStreamTrack, stream: MediaStream): Promise<void> {
+    console.log('[WebRTCClient] addTrack:', track.kind, track.id, 'stream:', stream.id);
     const sender = this.pc.addTrack(track, stream);
     
     if (track.kind === 'video') {
@@ -98,6 +107,7 @@ export class WebRTCClient {
       }
       
       await sender.setParameters(params);
+      console.log('[WebRTCClient] Video params set: 4.5Mbps, maintain-resolution');
       
       track.contentHint = 'motion';
       
@@ -109,6 +119,7 @@ export class WebRTCClient {
           const h264Codecs = codecs.filter(c => c.mimeType.includes('H264'));
           const otherCodecs = codecs.filter(c => !c.mimeType.includes('H264'));
           (videoTransceiver as any).setCodecPreferences([...h264Codecs, ...otherCodecs]);
+          console.log('[WebRTCClient] H.264 codec preference set for Safari');
         }
       }
     }

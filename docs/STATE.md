@@ -1,17 +1,28 @@
-## STATE (2026-10-10 15:10)
+## STATE (2026-10-10 16:45)
 
-| Phase | Status | Notes |
-|-------|--------|-------|
-| D0 | ✓ | StrictMode bug fixed (E2E 3/3) |
-| D1 | blocked | WebRTC test stream → B never sees remote. Same issue twice = STOP |
+| Phase | Status | Next |
+|-------|--------|------|
+| D0 | ✓ | StrictMode bug fixed |
+| D1 | testing | Fixed sender/receiver logic, ICE timing - USER TESTING NOW |
 
-## Blocked
-D1 streaming E2E: A sends canvas+audio via __test_start_stream event → rtcClient.addTrack → B should see remoteStream. Negotiation not completing. Need different approach or manual test.
+## Just Fixed (commit 84e7ef2)
+- canStartStreaming: only first peer (not streaming, no remote)
+- isViewer: only receiver (has remote, not sending)  
+- ICE timeout: moved to handleStreamReady (only when streaming)
+- Both sides showing "Choose source" → FIXED
 
-## Last commits
-- 5727315 D1 partial: ViewerPanel fix, test stream, E2E skeleton
-- d7f2364 D0: StrictMode bug fixed
-- 6c3b7ca D0: bug reproduced
+## User Testing Results
+- ✅ Both connected (D0 working)
+- ❌ Video not reaching partner (WebRTC negotiation issue?)
+- ❌ Chat messages not visible (payload empty?)
+- ⚠️ "Relay needed" showing immediately → FIXED in 84e7ef2
 
-## Next
-Rule 4: stop E2E, verify streaming manually OR simplify test (loopback first?). Context 145K/200K.
+## TODO Next
+1. Test locally: reproduce video + chat issues
+2. Add console logs for WebRTC + chat debugging
+3. Camera/mic support
+4. Face bubbles (draggable)
+5. Fullscreen improvements
+
+## Context
+149K/200K - continue debugging streaming

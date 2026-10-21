@@ -134,6 +134,7 @@ export function useRoom(roomId: string | undefined) {
 
       const handleChat = ({ payload }: { payload: { text: string } }) => {
         if (cancelled) return;
+        console.log('[useRoom] Chat received:', payload);
         setMessages(prev => [...prev, { from: 'partner', text: payload.text }]);
       };
 
@@ -162,6 +163,7 @@ export function useRoom(roomId: string | undefined) {
   const sendMessage = async (text: string) => {
     if (!clientRef.current || !text.trim()) return;
     try {
+      console.log('[useRoom] Sending chat:', text);
       await clientRef.current.send('chat', { text });
       setMessages(prev => [...prev, { from: 'you', text }]);
     } catch (err) {
