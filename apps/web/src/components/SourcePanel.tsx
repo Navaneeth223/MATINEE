@@ -3,11 +3,12 @@ import { useState, useRef, useEffect } from 'react';
 interface SourcePanelProps {
   onStreamReady: (stream: MediaStream, videoElement?: HTMLVideoElement) => void;
   isSafari: boolean;
+  isStreaming?: boolean;
 }
 
 type SourceMode = 'film' | 'screen' | null;
 
-export function SourcePanel({ onStreamReady, isSafari }: SourcePanelProps) {
+export function SourcePanel({ onStreamReady, isSafari, isStreaming = false }: SourcePanelProps) {
   const [mode, setMode] = useState<SourceMode>(null);
   const [file, setFile] = useState<File | null>(null);
   const [volume, setVolume] = useState(100);

@@ -207,10 +207,11 @@ export default function RoomPage() {
 
       <div className="main">
         <div className="stage">
-          {canStartStreaming && (
+          {(canStartStreaming || isStreaming) && (
             <SourcePanel 
               onStreamReady={handleStreamReady} 
-              isSafari={/Safari/.test(navigator.userAgent) && !/Chrome/.test(navigator.userAgent)} 
+              isSafari={/Safari/.test(navigator.userAgent) && !/Chrome/.test(navigator.userAgent)}
+              isStreaming={isStreaming}
             />
           )}
           {isViewer && (
@@ -220,9 +221,9 @@ export default function RoomPage() {
               sourceState={sourceState}
             />
           )}
-          {!canStartStreaming && !isViewer && (
+          {!canStartStreaming && !isStreaming && !isViewer && (
             <div className="stage-content">
-              {state === 'together' && isStreaming ? 'Streaming...' : (state === 'together' ? 'Ready' : 'Waiting to connect')}
+              {state === 'together' ? 'Ready — waiting for someone to share' : 'Waiting to connect'}
             </div>
           )}
         </div>
