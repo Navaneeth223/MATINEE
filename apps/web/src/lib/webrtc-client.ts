@@ -26,22 +26,43 @@ export class WebRTCClient {
     });
 
     this.pc.ontrack = (e) => {
+      console.log('[WebRTCClient] ontrack fired, streams:', e.streams.length, 'track:', e.track.kind);
       if (e.streams[0]) {
+        console.log('[WebRTCClient] Calling onTrack callback with stream:', e.streams[0].id);
         options.onTrack(e.streams[0]);
+      } else {
+        console.warn('[WebRTCClient] ontrack event but no stream');
       }
     };
 
     this.pc.onconnectionstatechange = () => {
+      console.log('[WebRTCClient] Connection state changed:', this.pc.connectionState);
       options.onConnectionState(this.pc.connectionState);
+    };
+
+    this.pc.oniceconnectionstatechange = () => {
+      console.log('[WebRTCClient] ICE connection state changed:', this.pc.iceConnectionState);
+    };
+
+    this.pc.onicegatheringstatechange = () => {
+      console.log('[WebRTCClient] ICE gathering state changed:', this.pc.iceGatheringState);
+    };
+
+    this.pc.onsignalingstatechange = () => {
+      console.log('[WebRTCClient] Signaling state changed:', this.pc.signalingState);
     };
 
     this.pc.onicecandidate = async ({ candidate }) => {
       if (candidate) {
+        console.log('[WebRTCClient] Local ICE candidate generated:', candidate.type);
         try {
           await this.roomClient.send('ice', { candidate: candidate.toJSON() });
+          console.log('[WebRTCClient] ICE candidate sent successfully');
         } catch (err) {
           console.error('[WebRTCClient] Failed to send ICE candidate:', err);
         }
+      } else {
+        console.log('[WebRTCClient] ICE gathering complete (null candidate)');
       }
     };
 
@@ -60,12 +81,25 @@ export class WebRTCClient {
     };
 
     this.roomClient.on('msg:sdp', async ({ payload }: any) => {
-      if (!payload || !payload.description) {
-        console.error('[WebRTCClient] Received SDP with invalid payload:', payload);
+      console.log('[WebRTCClient] msg:sdp event received, raw payload:', payload);
+      
+      if (!payload) {
+        console.error('[WebRTCClient] Received SDP with undefined payload');
+        return;
+      }
+      
+      if (!payload.description) {
+        console.error('[WebRTCClient] Received SDP payload without description field:', payload);
         return;
       }
       
       const description = payload.description;
+      
+      if (!description.type || !description.sdp) {
+        console.error('[WebRTCClient] Invalid SDP description:', description);
+        return;
+      }
+      
       console.log('[WebRTCClient] Received SDP:', description.type);
       const offerCollision =
         description.type === 'offer' &&
@@ -73,28 +107,45 @@ export class WebRTCClient {
 
       this.ignoreOffer = offerCollision;
       if (this.ignoreOffer) {
-        console.log('[WebRTCClient] Ignoring offer due to collision');
+        console.log('[WebRTCClient] Ignoring offer due to collision, makingOffer:', this.makingOffer, 'signalingState:', this.pc.signalingState);
         return;
       }
 
+      console.log('[WebRTCClient] Setting remote description, current signaling state:', this.pc.signalingState);
       this.isSettingRemoteAnswerPending = description.type === 'answer';
       await this.pc.setRemoteDescription(description);
-      console.log('[WebRTCClient] Remote description set, signaling:', this.pc.signalingState);
+      console.log('[WebRTCClient] Remote description set successfully, new signaling state:', this.pc.signalingState);
       this.isSettingRemoteAnswerPending = false;
 
       if (description.type === 'offer') {
+        console.log('[WebRTCClient] Creating answer for received offer');
         await this.pc.setLocalDescription();
-        console.log('[WebRTCClient] Sending answer');
+        console.log('[WebRTCClient] Answer created, sending back');
         await this.roomClient.send('sdp', { description: this.pc.localDescription!.toJSON() });
+        console.log('[WebRTCClient] Answer sent successfully');
       }
     });
 
     this.roomClient.on('msg:ice', async ({ payload }: any) => {
+      console.log('[WebRTCClient] msg:ice event received, raw payload:', payload);
+      
+      if (!payload) {
+        console.error('[WebRTCClient] Received ICE with undefined payload');
+        return;
+      }
+      
+      if (!payload.candidate) {
+        console.error('[WebRTCClient] Received ICE payload without candidate field:', payload);
+        return;
+      }
+      
       try {
+        console.log('[WebRTCClient] Adding ICE candidate');
         await this.pc.addIceCandidate(payload.candidate);
+        console.log('[WebRTCClient] ICE candidate added successfully');
       } catch (err) {
         if (!this.ignoreOffer) {
-          console.error('ICE candidate error:', err);
+          console.error('[WebRTCClient] ICE candidate error:', err);
         }
       }
     });
