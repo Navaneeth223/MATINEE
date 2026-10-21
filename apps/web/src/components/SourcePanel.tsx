@@ -156,7 +156,11 @@ export function SourcePanel({ onStreamReady, isSafari, isStreaming = false }: So
   };
 
   const handleFilmStart = () => {
-    if (!videoRef.current) return;
+    console.log('[SourcePanel] Film start - button clicked');
+    if (!videoRef.current) {
+      console.error('[SourcePanel] Film start ABORTED - videoRef.current is null');
+      return;
+    }
 
     console.log('[SourcePanel] Film start - creating audio context');
     const video = videoRef.current;
@@ -184,6 +188,7 @@ export function SourcePanel({ onStreamReady, isSafari, isStreaming = false }: So
   };
 
   const handleScreenCapture = async () => {
+    console.log('[SourcePanel] Screen capture - button clicked');
     try {
       console.log('[SourcePanel] Requesting screen capture');
       const stream = await (navigator.mediaDevices as any).getDisplayMedia({
@@ -199,7 +204,11 @@ export function SourcePanel({ onStreamReady, isSafari, isStreaming = false }: So
   };
 
   const handleScreenStart = () => {
-    if (!screenStream) return;
+    console.log('[SourcePanel] Screen start - button clicked');
+    if (!screenStream) {
+      console.error('[SourcePanel] Screen start ABORTED - no screenStream');
+      return;
+    }
     console.log('[SourcePanel] Screen start - calling onStreamReady');
     onStreamReady(screenStream);
   };
