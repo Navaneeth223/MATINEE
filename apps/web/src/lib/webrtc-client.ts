@@ -81,48 +81,53 @@ export class WebRTCClient {
     };
 
     this.roomClient.on('msg:sdp', async ({ payload }: any) => {
-      console.log('[WebRTCClient] msg:sdp event received, raw payload:', payload);
-      
-      if (!payload) {
-        console.error('[WebRTCClient] Received SDP with undefined payload');
-        return;
-      }
-      
-      if (!payload.description) {
-        console.error('[WebRTCClient] Received SDP payload without description field:', payload);
-        return;
-      }
-      
-      const description = payload.description;
-      
-      if (!description.type || !description.sdp) {
-        console.error('[WebRTCClient] Invalid SDP description:', description);
-        return;
-      }
-      
-      console.log('[WebRTCClient] Received SDP:', description.type);
-      const offerCollision =
-        description.type === 'offer' &&
-        (this.makingOffer || this.pc.signalingState !== 'stable');
+      try {
+        console.log('[WebRTCClient] msg:sdp event received, raw payload:', payload);
+        
+        if (!payload) {
+          console.error('[WebRTCClient] Received SDP with undefined payload');
+          return;
+        }
+        
+        if (!payload.description) {
+          console.error('[WebRTCClient] Received SDP payload without description field:', payload);
+          return;
+        }
+        
+        const description = payload.description;
+        
+        if (!description.type || !description.sdp) {
+          console.error('[WebRTCClient] Invalid SDP description:', description);
+          return;
+        }
+        
+        console.log('[WebRTCClient] Received SDP:', description.type);
+        const offerCollision =
+          description.type === 'offer' &&
+          (this.makingOffer || this.pc.signalingState !== 'stable');
 
-      this.ignoreOffer = offerCollision;
-      if (this.ignoreOffer) {
-        console.log('[WebRTCClient] Ignoring offer due to collision, makingOffer:', this.makingOffer, 'signalingState:', this.pc.signalingState);
-        return;
-      }
+        this.ignoreOffer = offerCollision;
+        if (this.ignoreOffer) {
+          console.log('[WebRTCClient] Ignoring offer due to collision, makingOffer:', this.makingOffer, 'signalingState:', this.pc.signalingState);
+          return;
+        }
 
-      console.log('[WebRTCClient] Setting remote description, current signaling state:', this.pc.signalingState);
-      this.isSettingRemoteAnswerPending = description.type === 'answer';
-      await this.pc.setRemoteDescription(description);
-      console.log('[WebRTCClient] Remote description set successfully, new signaling state:', this.pc.signalingState);
-      this.isSettingRemoteAnswerPending = false;
+        console.log('[WebRTCClient] Setting remote description, current signaling state:', this.pc.signalingState);
+        this.isSettingRemoteAnswerPending = description.type === 'answer';
+        await this.pc.setRemoteDescription(description);
+        console.log('[WebRTCClient] Remote description set successfully, new signaling state:', this.pc.signalingState);
+        this.isSettingRemoteAnswerPending = false;
 
-      if (description.type === 'offer') {
-        console.log('[WebRTCClient] Creating answer for received offer');
-        await this.pc.setLocalDescription();
-        console.log('[WebRTCClient] Answer created, sending back');
-        await this.roomClient.send('sdp', { description: this.pc.localDescription!.toJSON() });
-        console.log('[WebRTCClient] Answer sent successfully');
+        if (description.type === 'offer') {
+          console.log('[WebRTCClient] Creating answer for received offer');
+          await this.pc.setLocalDescription();
+          console.log('[WebRTCClient] Answer created, sending back');
+          await this.roomClient.send('sdp', { description: this.pc.localDescription!.toJSON() });
+          console.log('[WebRTCClient] Answer sent successfully');
+        }
+      } catch (err) {
+        console.error('[WebRTCClient] SDP handling error:', err);
+        this.isSettingRemoteAnswerPending = false; // Reset state on error
       }
     });
 
