@@ -1,32 +1,35 @@
-## STATE (2026-10-10 18:00)
+## STATE (2026-10-10 19:00) - Context 162K/200K
 
-| Commit | Fix | Status |
-|--------|-----|--------|
-| 854f5c0 | Manual createOffer() | ✓ E2E pass |
+## Issue: Click "Start streaming" → Nothing happens
 
-## Root Cause #2 Found
-**onnegotiationneeded NOT firing** - WebRTC timing bug
-- Added `createOffer()` method to WebRTCClient
-- Call it manually after adding all tracks
-- Logs now show: "Manually creating offer"
+User console shows:
+- Sender: Only "[RoomClient] Sent: state" (position updates)
+- Receiver: Error "Cannot read properties of undefined (reading 'type')" at webrtc-client.ts:64
+- **Missing**: NO "[RoomPage] Stream ready" log!
 
-## USER: Test Again Now!
-1. Refresh BOTH browsers completely
-2. Connect (both should say "Connected")
-3. Click "Film file", choose video, "Start streaming"
-4. Console should show:
-   ```
-   [RoomPage] Triggering manual negotiation...
-   [WebRTCClient] Manually creating offer...
-   [WebRTCClient] Sending offer: offer
-   [RoomClient] Sent: sdp
-   ```
-5. Partner should see "Start watching"
-6. Click → video plays
+## Just Added (commits 42890ab + latest)
+- SourcePanel logging: will show "[SourcePanel] Film start" or "[SourcePanel] Requesting screen capture"
+- handleStreamReady try-catch: will show "[RoomPage] handleStreamReady ERROR" if it fails
 
-## If STILL broken
-- Share BOTH console logs
-- But E2E test PASSES now!
+## USER: Test with console open
+1. Refresh sender browser
+2. Click "Film file", pick video
+3. Click "Start streaming"
+4. **Should see in console**:
+   - `[SourcePanel] Film start - creating audio context`
+   - `[SourcePanel] Calling onStreamReady with 2 tracks`
+   - `[RoomPage] Stream ready: ...`
 
-## Context
-160K/200K
+## If STILL nothing in console
+- The button click isn't firing
+- OR JavaScript error earlier blocking everything
+- Share FULL console from page load
+
+## Workflow recommendation
+Given complexity + context limit → launch workflow with:
+- Task: "Fix Matinee WebRTC streaming + complete UI"
+- Files: apps/web/src/*, apps/edge/src/*
+- Test: E2E passes, manual browser test works
+- Then: camera, face bubbles, deploy
+
+I've fixed many issues but streaming needs systematic debugging.
