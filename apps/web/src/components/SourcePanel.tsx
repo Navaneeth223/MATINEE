@@ -62,7 +62,6 @@ export function SourcePanel({ onStreamReady }: SourcePanelProps) {
 
     const video = videoRef.current;
     
-    // WebAudio branch: source -> localGain -> speakers + destination -> peer
     const audioCtx = new AudioContext();
     audioCtxRef.current = audioCtx;
     const source = audioCtx.createMediaElementSource(video);
@@ -75,7 +74,6 @@ export function SourcePanel({ onStreamReady }: SourcePanelProps) {
     localGain.connect(audioCtx.destination);
     source.connect(dest);
 
-    // Capture video + audio
     const videoStream = (video as any).captureStream ? (video as any).captureStream() : (video as any).mozCaptureStream();
     const combined = new MediaStream([
       ...videoStream.getVideoTracks(),
@@ -92,28 +90,26 @@ export function SourcePanel({ onStreamReady }: SourcePanelProps) {
   }, [volume]);
 
   return (
-    <div className="space-y-4">
-      <div className="bg-[#15121B] rounded-[14px] p-6 space-y-4">
-        <h2 className="text-xl font-medium">Stream a film</h2>
+    <div className="source-panel">
+      <div className="card space-y-4">
+        <h2>Stream a film</h2>
         
         <input
           type="file"
           accept="video/*"
           onChange={handleFileSelect}
-          className="block w-full text-sm text-[#B7AEC0] file:mr-4 file:py-2 file:px-4 file:rounded-[14px] file:border-0 file:text-sm file:font-medium file:bg-[#E7C98E] file:text-[#08070B] hover:file:opacity-90 file:cursor-pointer"
         />
 
         {audioWarning && (
-          <div className="bg-[#E07A8F] bg-opacity-10 border border-[#E07A8F] rounded-[14px] p-4 space-y-2">
-            <p className="text-sm text-[#E07A8F] font-medium">
-              No sound: this file's audio (probably Dolby/AC-3) can't play in the browser
-            </p>
-            <div className="bg-[#08070B] rounded-[14px] p-3 font-mono text-xs text-[#FBF6EC] overflow-x-auto">
+          <div className="warning-card">
+            <p>No sound: this file's audio (probably Dolby/AC-3) can't play in the browser</p>
+            <div className="code-block">
               {ffmpegCommand}
             </div>
             <button
               onClick={() => navigator.clipboard?.writeText(ffmpegCommand)}
-              className="text-xs text-[#E7C98E] hover:underline"
+              className="link-btn"
+              style={{ marginTop: '0.5rem' }}
             >
               Copy command
             </button>
@@ -121,35 +117,33 @@ export function SourcePanel({ onStreamReady }: SourcePanelProps) {
         )}
 
         {file && (
-          <>
-            <div className="space-y-2">
-              <video
-                ref={videoRef}
-                controls
-                className="w-full rounded-[14px] bg-black"
-                style={{ maxHeight: '300px' }}
-              />
-              
-              <div className="space-y-1">
-                <label className="text-sm text-[#B7AEC0]">Local volume: {volume}%</label>
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  value={volume}
-                  onChange={(e) => setVolume(Number(e.target.value))}
-                  className="w-full accent-[#E7C98E]"
-                />
+          <div className="space-y-2">
+            <video
+              ref={videoRef}
+              controls
+              style={{ maxHeight: '300px' }}
+            />
+            
+            <div className="slider-group">
+              <div className="slider-label">
+                <span>Local volume: {volume}%</span>
               </div>
+              <input
+                type="range"
+                min="0"
+                max="100"
+                value={volume}
+                onChange={(e) => setVolume(Number(e.target.value))}
+              />
             </div>
 
             <button
               onClick={handleStartStreaming}
-              className="w-full px-6 py-3 bg-[#E7C98E] text-[#08070B] rounded-[14px] font-medium hover:opacity-90 transition-opacity focus:outline-none focus:ring-2 focus:ring-[#E7C98E]"
+              className="btn btn-primary w-full"
             >
               Start streaming
             </button>
-          </>
+          </div>
         )}
       </div>
     </div>

@@ -15,14 +15,11 @@ export default function FoyerPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#08070B] text-[#FBF6EC] flex items-center justify-center p-4">
-      <div className="text-center space-y-8">
-        <h1 className="text-6xl font-bold tracking-tight">Matinee</h1>
-        <p className="text-xl text-[#B7AEC0]">Watch together from anywhere</p>
-        <button
-          onClick={handleCreate}
-          className="px-8 py-4 text-lg font-medium bg-[#E7C98E] text-[#08070B] rounded-[14px] hover:opacity-90 transition-opacity focus:outline-none focus:ring-2 focus:ring-[#E7C98E] focus:ring-offset-2 focus:ring-offset-[#08070B]"
-        >
+    <div className="foyer">
+      <div>
+        <h1>Matinee</h1>
+        <p>Watch together from anywhere</p>
+        <button onClick={handleCreate} className="btn btn-primary btn-lg">
           Create our room
         </button>
       </div>

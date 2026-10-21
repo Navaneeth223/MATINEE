@@ -17,7 +17,6 @@ export function ViewerPanel({ stream, onCommand, sourceState }: ViewerPanelProps
     return saved ? Number(saved) : 100;
   });
   const [muted, setMuted] = useState(false);
-  const [stats, setStats] = useState({ resolution: '', kbps: 0, dropped: 0, connection: 'unknown' });
   
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
@@ -89,7 +88,7 @@ export function ViewerPanel({ stream, onCommand, sourceState }: ViewerPanelProps
 
   if (!stream) {
     return (
-      <div className="flex items-center justify-center h-full text-[#B7AEC0]">
+      <div className="stage-content">
         Waiting for stream...
       </div>
     );
@@ -97,10 +96,10 @@ export function ViewerPanel({ stream, onCommand, sourceState }: ViewerPanelProps
 
   if (!ready) {
     return (
-      <div className="flex items-center justify-center h-full">
+      <div className="stage-content">
         <button
           onClick={handleStartWatching}
-          className="px-12 py-6 text-2xl font-medium bg-[#E7C98E] text-[#08070B] rounded-[14px] hover:opacity-90 transition-opacity focus:outline-none focus:ring-2 focus:ring-[#E7C98E]"
+          className="btn btn-primary btn-xl"
         >
           Start watching
         </button>
@@ -109,13 +108,12 @@ export function ViewerPanel({ stream, onCommand, sourceState }: ViewerPanelProps
   }
 
   return (
-    <div className="space-y-4">
+    <div className="viewer-panel space-y-4">
       <video
         ref={videoRef}
         autoPlay
         muted
         playsInline
-        className="w-full rounded-[14px] bg-black"
         style={{ aspectRatio: '16 / 9' }}
         onLoadedMetadata={() => {
           if (videoRef.current && stream) {
@@ -125,58 +123,35 @@ export function ViewerPanel({ stream, onCommand, sourceState }: ViewerPanelProps
       />
 
       {sourceState && (
-        <div className="text-sm text-[#B7AEC0] space-y-1">
+        <div className="text-sm text-muted">
           <p>Position: {sourceState.time.toFixed(1)}s {sourceState.paused ? '(paused)' : '(playing)'}</p>
-          {stats.resolution && (
-            <p>
-              {stats.resolution} • {stats.kbps} kbps • {stats.dropped} dropped • {stats.connection}
-            </p>
-          )}
         </div>
       )}
 
-      <div className="bg-[#15121B] rounded-[14px] p-4 space-y-4">
-        <div className="flex flex-wrap gap-2">
-          <button
-            onClick={() => onCommand('play')}
-            className="px-4 py-2 bg-[#E7C98E] text-[#08070B] rounded-[14px] text-sm font-medium hover:opacity-90"
-          >
+      <div className="card space-y-4">
+        <div className="controls">
+          <button onClick={() => onCommand('play')} className="btn btn-primary">
             Play
           </button>
-          <button
-            onClick={() => onCommand('pause')}
-            className="px-4 py-2 bg-[#E7C98E] text-[#08070B] rounded-[14px] text-sm font-medium hover:opacity-90"
-          >
+          <button onClick={() => onCommand('pause')} className="btn btn-primary">
             Pause
           </button>
-          <button
-            onClick={() => onCommand('skip', -10)}
-            className="px-4 py-2 bg-[#E7C98E] text-[#08070B] rounded-[14px] text-sm font-medium hover:opacity-90"
-          >
+          <button onClick={() => onCommand('skip', -10)} className="btn btn-primary">
             -10s
           </button>
-          <button
-            onClick={() => onCommand('skip', 10)}
-            className="px-4 py-2 bg-[#E7C98E] text-[#08070B] rounded-[14px] text-sm font-medium hover:opacity-90"
-          >
+          <button onClick={() => onCommand('skip', 10)} className="btn btn-primary">
             +10s
           </button>
-          <button
-            onClick={handleFullscreen}
-            className="px-4 py-2 bg-[#E7C98E] text-[#08070B] rounded-[14px] text-sm font-medium hover:opacity-90"
-          >
+          <button onClick={handleFullscreen} className="btn btn-primary">
             Fullscreen
           </button>
         </div>
 
-        <div className="space-y-3">
-          <div className="space-y-1">
-            <div className="flex items-center justify-between">
-              <label className="text-sm text-[#B7AEC0]">Volume: {volume}%</label>
-              <button
-                onClick={() => setMuted(!muted)}
-                className="text-xs text-[#E7C98E] hover:underline"
-              >
+        <div className="space-y-2">
+          <div className="slider-group">
+            <div className="slider-label">
+              <span>Volume: {volume}%</span>
+              <button onClick={() => setMuted(!muted)} className="link-btn">
                 {muted ? 'Unmute' : 'Mute'}
               </button>
             </div>
@@ -186,19 +161,19 @@ export function ViewerPanel({ stream, onCommand, sourceState }: ViewerPanelProps
               max="100"
               value={volume}
               onChange={(e) => setVolume(Number(e.target.value))}
-              className="w-full accent-[#E7C98E]"
             />
           </div>
 
-          <div className="space-y-1">
-            <label className="text-sm text-[#B7AEC0]">Boost: {boost}%</label>
+          <div className="slider-group">
+            <div className="slider-label">
+              <span>Boost: {boost}%</span>
+            </div>
             <input
               type="range"
               min="100"
               max="300"
               value={boost}
               onChange={(e) => setBoost(Number(e.target.value))}
-              className="w-full accent-[#E7C98E]"
             />
           </div>
         </div>
