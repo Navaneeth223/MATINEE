@@ -1,39 +1,31 @@
-import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { newRoomSecret, toB64u, newRoomId } from '@matinee/protocol';
+import { newRoomId } from '@matinee/protocol';
 
 export default function FoyerPage() {
-  const [creating, setCreating] = useState(false);
   const navigate = useNavigate();
 
-  const handleCreateRoom = () => {
-    setCreating(true);
-
+  const handleCreate = () => {
     const roomId = newRoomId();
-    const secret = newRoomSecret();
-    const secretB64 = toB64u(secret);
-
-    const url = `/r/${roomId}#k=${secretB64}`;
-    navigate(url);
+    const secret = crypto.getRandomValues(new Uint8Array(16));
+    const secretB64 = btoa(String.fromCharCode(...secret))
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=/g, '');
+    navigate(`/r/${roomId}#k=${secretB64}`);
   };
 
   return (
-    <div style={{ padding: '2rem', maxWidth: '600px', margin: '0 auto' }}>
-      <h1>Matinee</h1>
-      <p>Watch films together, in sync, end-to-end encrypted.</p>
-
-      <button
-        onClick={handleCreateRoom}
-        disabled={creating}
-        style={{
-          padding: '1rem 2rem',
-          fontSize: '1.2rem',
-          marginTop: '2rem',
-          cursor: creating ? 'wait' : 'pointer',
-        }}
-      >
-        {creating ? 'Creating room...' : 'Create Room'}
-      </button>
+    <div className="min-h-screen bg-[#08070B] text-[#FBF6EC] flex items-center justify-center p-4">
+      <div className="text-center space-y-8">
+        <h1 className="text-6xl font-bold tracking-tight">Matinee</h1>
+        <p className="text-xl text-[#B7AEC0]">Watch together from anywhere</p>
+        <button
+          onClick={handleCreate}
+          className="px-8 py-4 text-lg font-medium bg-[#E7C98E] text-[#08070B] rounded-[14px] hover:opacity-90 transition-opacity focus:outline-none focus:ring-2 focus:ring-[#E7C98E] focus:ring-offset-2 focus:ring-offset-[#08070B]"
+        >
+          Create our room
+        </button>
+      </div>
     </div>
   );
 }

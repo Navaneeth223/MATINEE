@@ -1,342 +1,131 @@
-import { useEffect, useState, useRef } from 'react';
+import { useState, useRef } from 'react';
 import { useParams } from 'react-router-dom';
-import { RoomClient } from '../lib/room-client';
-import { WebRTCClient } from '../lib/webrtc-client';
-import { fromB64u, toB64u } from '@matinee/protocol';
-
-// Read secret from hash ONCE before React can run effects twice
-function readAndStripSecret(roomId: string): Uint8Array | null {
-  const stored = sessionStorage.getItem(`matinee-secret-${roomId}`);
-  if (stored) return fromB64u(stored);
-
-  const fragment = window.location.hash;
-  const match = fragment.match(/k=([A-Za-z0-9_-]+)/);
-  if (!match) return null;
-  
-  const secretB64 = match[1];
-  const secret = fromB64u(secretB64);
-  sessionStorage.setItem(`matinee-secret-${roomId}`, secretB64);
-  window.history.replaceState(null, '', window.location.pathname + window.location.search);
-  return secret;
-}
+import { useRoom } from '../lib/useRoom';
+import { buildInviteLink } from '@matinee/protocol';
 
 export default function RoomPage() {
   const { roomId } = useParams<{ roomId: string }>();
-  const [status, setStatus] = useState<string>('Reading secret...');
-  const [messages, setMessages] = useState<string[]>([]);
+  const { state, role, messages, sendMessage, secret } = useRoom(roomId);
   const [inputText, setInputText] = useState('');
-  const [isSource, setIsSource] = useState(false);
-  const [isViewer, setIsViewer] = useState(false);
-  const [viewerReady, setViewerReady] = useState(false);
-  const [rtcState, setRtcState] = useState('');
-  const [sourceCurrentTime, setSourceCurrentTime] = useState(0);
-  const [sourcePaused, setSourcePaused] = useState(true);
-  
-  const clientRef = useRef<RoomClient | null>(null);
-  const rtcClientRef = useRef<WebRTCClient | null>(null);
-  const secretRef = useRef<Uint8Array | null>(null);
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const remoteVideoRef = useRef<HTMLVideoElement>(null);
-  const audioCtxRef = useRef<AudioContext | null>(null);
-  const localGainRef = useRef<GainNode | null>(null);
+  const [copied, setCopied] = useState(false);
+  const chatEndRef = useRef<HTMLDivElement>(null);
 
-  const handleCopyInvite = () => {
-    if (!secretRef.current || !roomId) return;
-    const secret = toB64u(secretRef.current);
-    const inviteUrl = `${window.location.origin}/r/${roomId}#k=${secret}`;
-    const btn = document.querySelector('[data-testid="copy-invite"]');
-    if (btn) btn.setAttribute('data-invite-url', inviteUrl);
+  const handleCopy = () => {
+    if (!secret || !roomId) return;
+    const inviteUrl = buildInviteLink(window.location.origin, roomId, secret);
     navigator.clipboard?.writeText(inviteUrl).then(() => {
-      console.log('Invite copied:', inviteUrl);
-    }).catch(err => console.error('Copy failed:', err));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
   };
 
-  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !videoRef.current) return;
-
-    const video = videoRef.current;
-    video.src = URL.createObjectURL(file);
-    video.load();
-    await video.play();
-
-    setIsSource(true);
-
-    // WebAudio branch: MediaElementSource -> local gain -> speakers + MediaStreamDestination
-    const audioCtx = new AudioContext();
-    audioCtxRef.current = audioCtx;
-    const source = audioCtx.createMediaElementSource(video);
-    const localGain = audioCtx.createGain();
-    localGainRef.current = localGain;
-    const dest = audioCtx.createMediaStreamDestination();
-
-    source.connect(localGain);
-    localGain.connect(audioCtx.destination);
-    source.connect(dest);
-
-    // Capture video + audio
-    const videoStream = (video as any).captureStream ? (video as any).captureStream() : (video as any).mozCaptureStream();
-    const combined = new MediaStream([
-      ...videoStream.getVideoTracks(),
-      ...dest.stream.getAudioTracks()
-    ]);
-
-    // Add to peer connection
-    if (rtcClientRef.current) {
-      combined.getTracks().forEach(track => {
-        rtcClientRef.current!.addTrack(track, combined);
-      });
-    }
+  const handleSendMessage = () => {
+    if (!inputText.trim()) return;
+    sendMessage(inputText);
+    setInputText('');
+    setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
   };
 
-  useEffect(() => {
-    if (!roomId || !secretRef.current) return;
+  const statusText = {
+    reading: 'Reading invitation...',
+    connecting: 'Connecting...',
+    alone: 'Waiting for your partner to join',
+    together: 'Connected — ready to watch',
+    incomplete: 'This link is incomplete, ask your partner to send it again',
+    'error:wrong-secret': 'Wrong secret — check the link',
+    'error:full': 'Room is full',
+    'error:closed': 'Connection closed',
+  }[state];
 
-    const secret = secretRef.current;
-    const client = new RoomClient(roomId);
-    clientRef.current = client;
-
-    client.on('connected', ({ role }: any) => {
-      setStatus(`Connected (${role})`);
-      const statusEl = document.querySelector('[data-testid="status-text"]');
-      if (statusEl) {
-        if (role === 'creator') statusEl.setAttribute('data-testid-role', 'status-connected');
-        if (role === 'joiner') statusEl.setAttribute('data-testid-role', 'status-connected');
-      }
-    });
-
-    client.on('error', (err: any) => {
-      setStatus(`Error: ${err.message}`);
-      const statusEl = document.querySelector('[data-testid="status-text"]');
-      if (statusEl && err.message.includes('full')) {
-        statusEl.setAttribute('data-testid-role', 'status-full');
-      } else if (statusEl && (err.message.includes('denied') || err.message.includes('Wrong secret'))) {
-        statusEl.setAttribute('data-testid-role', 'status-denied');
-      }
-    });
-
-    client.on('msg:chat', ({ payload }: any) => {
-      const text = (payload as { text: string }).text;
-      setMessages((prev) => [...prev, `Peer: ${text}`]);
-    });
-
-    // WebRTC
-    const rtcClient = new WebRTCClient({
-      roomClient: client,
-      onTrack: (stream) => {
-        if (remoteVideoRef.current) {
-          remoteVideoRef.current.srcObject = stream;
-          setIsViewer(true);
-        }
-      },
-      onConnectionState: (state) => {
-        setRtcState(state);
-      },
-    });
-    rtcClientRef.current = rtcClient;
-
-    // Remote control: cmd messages
-    client.on('msg:cmd', async ({ payload }: any) => {
-      const video = videoRef.current;
-      if (!video || !isSource) return;
-
-      const { action, value } = payload;
-      if (action === 'play') await video.play();
-      else if (action === 'pause') video.pause();
-      else if (action === 'seek') video.currentTime = value;
-      else if (action === 'skip') video.currentTime += value;
-
-      // Send state update
-      clientRef.current?.send('state', {
-        currentTime: video.currentTime,
-        paused: video.paused,
-        duration: video.duration,
-      });
-    });
-
-    // Receive state updates
-    client.on('msg:state', ({ payload }: any) => {
-      setSourceCurrentTime(payload.currentTime || 0);
-      setSourcePaused(payload.paused !== false);
-    });
-
-    setStatus('Connecting...');
-    client.connect(secret).catch((err) => {
-      setStatus(`Connection failed: ${err.message}`);
-    });
-
-    return () => {
-      rtcClient.close();
-      client.disconnect();
-      audioCtxRef.current?.close();
-    };
-  }, [roomId, secretRef.current]);
-
-  const handleViewerControl = (action: string, value?: number) => {
-    if (!clientRef.current) return;
-    clientRef.current.send('cmd', { action, value });
-  };
-
-  const handleCreate = async () => {
-    if (!roomId) return;
-    const secret = crypto.getRandomValues(new Uint8Array(32));
-    secretRef.current = secret;
-    sessionStorage.setItem(`matinee-secret-${roomId}`, toB64u(secret));
-    setStatus('Creating room...');
-    // Force useEffect re-run
-    setMessages([...messages]);
-  };
-
-  const handleJoin = () => {
-    const secret = readAndStripSecret(roomId!);
-    if (!secret) {
-      setStatus('No secret found in URL');
-      return;
-    }
-    secretRef.current = secret;
-    setStatus('Joining room...');
-    // Force useEffect re-run
-    setMessages([...messages]);
-  };
-
-  const handleStartWatching = async () => {
-    if (!remoteVideoRef.current) return;
-    remoteVideoRef.current.muted = false;
-    await remoteVideoRef.current.play();
-    setViewerReady(true);
-  };
-
-  const handleSend = async () => {
-    if (!clientRef.current || !inputText.trim()) return;
-    try {
-      await clientRef.current.send('chat', { text: inputText });
-      setMessages((prev) => [...prev, `You: ${inputText}`]);
-      setInputText('');
-    } catch (err: any) {
-      setStatus(`Send failed: ${err.message}`);
-    }
-  };
+  const partnerPresent = state === 'together';
+  const youPresent = role !== null;
 
   return (
-    <div style={{ padding: '2rem', maxWidth: '1200px', margin: '0 auto' }}>
-      <h1>Room: {roomId}</h1>
-      <p data-testid="status-text">Status: {status} {rtcState && `(WebRTC: ${rtcState})`}</p>
-      
-      {status === 'Reading secret...' && (
-        <>
-          <button onClick={handleCreate} data-testid="create-room" style={{ margin: '0.5rem', padding: '0.5rem 1rem' }}>
-            Create
-          </button>
-          <button onClick={handleJoin} data-testid="join-room" style={{ margin: '0.5rem', padding: '0.5rem 1rem' }}>
-            Join
-          </button>
-        </>
-      )}
-      
-      <button onClick={handleCopyInvite} data-testid="copy-invite" data-invite-url="" style={{ marginBottom: '1rem', padding: '0.5rem 1rem' }}>
-        Copy
-      </button>
-
-      {/* Stream a film panel */}
-      {!isSource && !isViewer && (
-        <div style={{ marginTop: '2rem', padding: '1rem', border: '2px solid #333' }}>
-          <h2>Stream a film</h2>
-          <input 
-            type="file" 
-            accept="video/*" 
-            onChange={handleFileSelect}
-            data-testid="file-picker"
-          />
-        </div>
-      )}
-
-      {/* Source video (local preview) */}
-      {isSource && (
-        <div style={{ marginTop: '1rem' }}>
-          <h3>Your film (local)</h3>
-          <video ref={videoRef} width="640" height="360" controls style={{ border: '2px solid blue' }} />
-          <div style={{ marginTop: '0.5rem' }}>
-            <button 
-              onClick={() => {
-                const video = videoRef.current;
-                if (!video) return;
-                video.muted = !video.muted;
-                if (localGainRef.current) {
-                  localGainRef.current.gain.value = video.muted ? 0 : 1;
-                }
-              }}
-              data-testid="mute-source"
-            >
-              {videoRef.current?.muted ? 'Unmute' : 'Mute'} local
-            </button>
+    <div className="min-h-screen bg-[#08070B] text-[#FBF6EC] flex flex-col">
+      {/* Top bar */}
+      <header className="border-b border-[#15121B] px-4 py-3 flex items-center justify-between flex-wrap gap-4">
+        <div className="flex items-center gap-4">
+          <h1 className="text-2xl font-bold">Matinee</h1>
+          <div className="px-3 py-1 bg-[#15121B] rounded-[14px] text-sm font-mono text-[#B7AEC0]">
+            {roomId}
           </div>
         </div>
-      )}
-
-      {/* Viewer: remote video behind Start button */}
-      {isViewer && !viewerReady && (
-        <div style={{ marginTop: '2rem', textAlign: 'center' }}>
-          <button 
-            onClick={handleStartWatching}
-            data-testid="start-watching"
-            style={{ 
-              fontSize: '2rem', 
-              padding: '2rem 4rem', 
-              cursor: 'pointer',
-              backgroundColor: '#007bff',
-              color: 'white',
-              border: 'none',
-              borderRadius: '8px'
-            }}
+        
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
+              <div className={`w-2 h-2 rounded-full ${youPresent ? 'bg-green-500' : 'bg-gray-600'}`} />
+              <span className="text-sm text-[#B7AEC0]">You</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className={`w-2 h-2 rounded-full ${partnerPresent ? 'bg-green-500' : 'bg-gray-600'}`} />
+              <span className="text-sm text-[#B7AEC0]">Partner</span>
+            </div>
+          </div>
+          
+          <button
+            onClick={handleCopy}
+            disabled={!secret}
+            className="px-4 py-2 bg-[#E7C98E] text-[#08070B] rounded-[14px] text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-[#E7C98E]"
           >
-            Start watching
+            {copied ? 'Copied' : 'Copy invite'}
           </button>
         </div>
-      )}
+      </header>
 
-      {isViewer && viewerReady && (
-        <div style={{ marginTop: '1rem' }}>
-          <h3>Remote stream</h3>
-          <video 
-            ref={remoteVideoRef} 
-            width="640" 
-            height="360" 
-            controls 
-            muted
-            data-testid="remote-video"
-            style={{ border: '2px solid red' }} 
-          />
-          <div style={{ marginTop: '1rem' }}>
-            <p>Source position: {sourceCurrentTime.toFixed(1)}s {sourcePaused ? '(paused)' : '(playing)'}</p>
-            <button onClick={() => handleViewerControl('play')} data-testid="viewer-play">Play</button>
-            <button onClick={() => handleViewerControl('pause')} data-testid="viewer-pause">Pause</button>
-            <button onClick={() => handleViewerControl('skip', -10)} data-testid="viewer-back">-10s</button>
-            <button onClick={() => handleViewerControl('skip', 10)} data-testid="viewer-forward">+10s</button>
-            <button onClick={() => handleViewerControl('seek', 0)} data-testid="viewer-seek">Seek to 0</button>
-          </div>
-        </div>
-      )}
-
-      {/* Chat */}
-      <div style={{ marginTop: '2rem', border: '1px solid #ccc', padding: '1rem', height: '200px', overflowY: 'auto', backgroundColor: '#f9f9f9' }}>
-        {messages.map((msg, i) => (
-          <div key={i} data-testid="chat-message">{msg}</div>
-        ))}
+      {/* Status */}
+      <div className="px-4 py-3 bg-[#15121B] border-b border-[#15121B]">
+        <p className={`text-sm ${state.startsWith('error') ? 'text-[#E07A8F]' : 'text-[#B7AEC0]'}`}>
+          {statusText}
+        </p>
       </div>
 
-      <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
-        <input
-          type="text"
-          data-testid="chat-input"
-          value={inputText}
-          onChange={(e) => setInputText(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-          placeholder="Type a message..."
-          style={{ flex: 1, padding: '0.5rem' }}
-        />
-        <button onClick={handleSend} data-testid="chat-send" style={{ padding: '0.5rem 1rem' }}>
-          Send
-        </button>
+      {/* Main content */}
+      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
+        {/* Stage */}
+        <div className="flex-1 flex items-center justify-center p-4 lg:p-8">
+          <div 
+            className="w-full max-w-4xl bg-[#15121B] rounded-[14px] overflow-hidden"
+            style={{ aspectRatio: '16 / 9' }}
+          >
+            <div className="w-full h-full flex items-center justify-center text-[#B7AEC0]">
+              Stage area
+            </div>
+          </div>
+        </div>
+
+        {/* Chat */}
+        <div className="lg:w-[340px] border-t lg:border-t-0 lg:border-l border-[#15121B] flex flex-col bg-[#15121B]">
+          <div className="flex-1 overflow-y-auto p-4 space-y-3" style={{ maxHeight: '400px' }}>
+            {messages.map((msg, i) => (
+              <div key={i} className="text-sm">
+                <span className="font-medium text-[#E7C98E]">{msg.from === 'you' ? 'You' : 'Partner'}</span>
+                <span className="text-[#FBF6EC]">: {msg.text}</span>
+              </div>
+            ))}
+            <div ref={chatEndRef} />
+          </div>
+          
+          <div className="p-4 border-t border-[#08070B]">
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={inputText}
+                onChange={(e) => setInputText(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
+                placeholder="Type a message..."
+                className="flex-1 px-3 py-2 bg-[#08070B] text-[#FBF6EC] rounded-[14px] text-sm focus:outline-none focus:ring-2 focus:ring-[#E7C98E] placeholder:text-[#B7AEC0]"
+              />
+              <button
+                onClick={handleSendMessage}
+                disabled={!inputText.trim()}
+                className="px-4 py-2 bg-[#E7C98E] text-[#08070B] rounded-[14px] text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-[#E7C98E]"
+              >
+                Send
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
