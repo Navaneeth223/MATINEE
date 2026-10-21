@@ -175,7 +175,7 @@ export default function RoomPage() {
 
       <div className="main">
         <div className="stage">
-          {canStream && <SourcePanel onStreamReady={handleStreamReady} />}
+          {canStream && <SourcePanel onStreamReady={handleStreamReady} isSafari={/Safari/.test(navigator.userAgent) && !/Chrome/.test(navigator.userAgent)} />}
           {isViewer && (
             <ViewerPanel
               stream={remoteStream}
