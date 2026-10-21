@@ -54,80 +54,110 @@ export function useRoom(roomId: string | undefined) {
   const [role, setRole] = useState<'creator' | 'joiner' | null>(null);
   const [messages, setMessages] = useState<Array<{ from: 'you' | 'partner'; text: string }>>([]);
   const clientRef = useRef<RoomClient | null>(null);
+  
+  // Read secret and peerId SYNCHRONOUSLY before useEffect
   const secretRef = useRef<Uint8Array | null>(null);
   const peerIdRef = useRef<string | null>(null);
-
-  const [secret] = useState(() => {
-    if (!roomId) return null;
+  
+  if (!secretRef.current && roomId) {
     const s = readAndStripSecret(roomId);
     if (!s) {
-      setState('incomplete');
-      return null;
+      if (state !== 'incomplete') setState('incomplete');
+    } else {
+      secretRef.current = s;
+      peerIdRef.current = getPeerId(roomId);
     }
-    return s;
-  });
+  }
 
   useEffect(() => {
-    if (!roomId || !secret) return;
+    if (!roomId || !secretRef.current) return;
 
     let cancelled = false;
-    secretRef.current = secret;
-    peerIdRef.current = getPeerId(roomId);
-    setState('connecting');
+    let connectTimer: number | null = null;
+    let pingTimer: number | null = null;
+    let client: RoomClient | null = null;
 
-    const client = new RoomClient(roomId);
-    clientRef.current = client;
-
-    const handleConnected = ({ role }: { role: 'creator' | 'joiner' }) => {
-      if (cancelled) return;
-      setRole(role);
-      setState('alone');
-    };
-
-    const handlePartnerArrived = () => {
-      if (cancelled) return;
-      setState('together');
-    };
-
-    const handlePartnerLeft = () => {
-      if (cancelled) return;
-      setState('alone');
-    };
-
-    const handleError = (err: { message: string }) => {
-      if (cancelled) return;
-      if (err.message.includes('Wrong secret')) {
-        setState('error:wrong-secret');
-      } else if (err.message.includes('full')) {
-        setState('error:full');
-      } else {
-        setState('error:closed');
-      }
-    };
-
-    const handleChat = ({ payload }: { payload: { text: string } }) => {
-      if (cancelled) return;
-      setMessages(prev => [...prev, { from: 'partner', text: payload.text }]);
-    };
-
-    client.on('connected', handleConnected);
-    client.on('partner-arrived', handlePartnerArrived);
-    client.on('partner-left', handlePartnerLeft);
-    client.on('error', handleError);
-    client.on('msg:chat', handleChat);
-
-    client.connect(secret).catch(err => {
-      if (cancelled) return;
-      console.error('Connection failed:', err);
-      setState('error:closed');
-    });
-
-    return () => {
+    const cleanup = () => {
       cancelled = true;
-      client.disconnect();
+      if (connectTimer !== null) {
+        clearTimeout(connectTimer);
+        connectTimer = null;
+      }
+      if (pingTimer !== null) {
+        clearInterval(pingTimer);
+        pingTimer = null;
+      }
+      if (client) {
+        client.disconnect();
+        client = null;
+      }
       clientRef.current = null;
     };
-  }, [roomId, secret]);
+
+    setState('connecting');
+
+    // Connect inside setTimeout(0) to avoid StrictMode double-connect
+    connectTimer = window.setTimeout(() => {
+      if (cancelled) return;
+      
+      const secret = secretRef.current!;
+      const peerId = peerIdRef.current!;
+      client = new RoomClient(roomId, peerId);
+      clientRef.current = client;
+
+      const handleConnected = ({ role }: { role: 'creator' | 'joiner' }) => {
+        if (cancelled) return;
+        setRole(role);
+        setState('alone');
+      };
+
+      const handlePartnerArrived = () => {
+        if (cancelled) return;
+        setState('together');
+      };
+
+      const handlePartnerLeft = () => {
+        if (cancelled) return;
+        setState('alone');
+      };
+
+      const handleError = (err: { message: string }) => {
+        if (cancelled) return;
+        if (err.message.includes('Wrong secret')) {
+          setState('error:wrong-secret');
+        } else if (err.message.includes('full')) {
+          setState('error:full');
+        } else {
+          setState('error:closed');
+        }
+      };
+
+      const handleChat = ({ payload }: { payload: { text: string } }) => {
+        if (cancelled) return;
+        setMessages(prev => [...prev, { from: 'partner', text: payload.text }]);
+      };
+
+      client.on('connected', handleConnected);
+      client.on('partner-arrived', handlePartnerArrived);
+      client.on('partner-left', handlePartnerLeft);
+      client.on('error', handleError);
+      client.on('msg:chat', handleChat);
+
+      client.connect(secret).catch(err => {
+        if (cancelled) return;
+        console.error('Connection failed:', err);
+        setState('error:closed');
+      });
+
+      // Ping every 10 seconds to keep connection alive
+      pingTimer = window.setInterval(() => {
+        if (cancelled || !client) return;
+        client.send('ping', {});
+      }, 10000);
+    }, 0);
+
+    return cleanup;
+  }, [roomId]);
 
   const sendMessage = async (text: string) => {
     if (!clientRef.current || !text.trim()) return;

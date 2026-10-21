@@ -255,9 +255,10 @@ export class RoomDO {
     const now = Date.now();
     const sockets = this.state.getWebSockets();
 
-    // Count DISTINCT admitted peerIds among LIVE sockets
+    // Count DISTINCT admitted peerIds among LIVE (OPEN) sockets
     const liveAdmitted = new Set<string>();
     for (const sock of sockets) {
+      if (sock.readyState !== WebSocket.OPEN && sock.readyState !== WebSocket.CONNECTING) continue;
       const att = sock.deserializeAttachment() as SocketAttachment;
       if (att?.admitted) {
         liveAdmitted.add(att.peerId);
@@ -311,10 +312,31 @@ export class RoomDO {
 
     // Check capacity
     if (liveAdmitted.size >= roomState.maxPeers) {
-      console.log(`join peer=${attachment.peerId.slice(0, 6)} live=${liveAdmitted.size} result=full`);
-      ws.send(JSON.stringify({ type: 'join-denied', reason: 'Room full' }));
-      ws.close(1008, 'Room full');
-      return;
+      // Before rejecting, evict any admitted sockets silent for >30s
+      const evicted: string[] = [];
+      for (const sock of sockets) {
+        const att = sock.deserializeAttachment() as SocketAttachment;
+        if (att?.admitted && now - att.lastSeenAt > 30000) {
+          sock.close(1000, 'evicted-silent');
+          evicted.push(att.peerId);
+        }
+      }
+
+      if (evicted.length > 0) {
+        // Recount after eviction
+        for (const peerId of evicted) {
+          liveAdmitted.delete(peerId);
+        }
+        console.log(`evicted ${evicted.length} silent sockets, live now ${liveAdmitted.size}`);
+      }
+
+      // Check capacity again after eviction
+      if (liveAdmitted.size >= roomState.maxPeers) {
+        console.log(`join peer=${attachment.peerId.slice(0, 6)} live=${liveAdmitted.size} result=full`);
+        ws.send(JSON.stringify({ type: 'join-denied', reason: 'Room full' }));
+        ws.close(1008, 'Room full');
+        return;
+      }
     }
 
     // Admit

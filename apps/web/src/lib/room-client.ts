@@ -29,8 +29,9 @@ export class RoomClient {
 
   constructor(
     roomId: string,
+    peerId?: string,
   ) {
-    this.peerId = newPeerId();
+    this.peerId = peerId || newPeerId();
     this.roomId = roomId;
   }
 
@@ -92,7 +93,13 @@ export class RoomClient {
           // Control frames (plaintext)
           if (data.type === 'join-ok') {
             this.state = 'connected';
-            this.emit('connected', { role: data.role, peers: data.peers || [] });
+            const peers = data.peers || [];
+            this.emit('connected', { role: data.role, peers });
+            
+            // Emit partner-arrived for each existing peer
+            for (const peerId of peers) {
+              this.emit('partner-arrived', { peerId });
+            }
             return;
           }
 
@@ -108,7 +115,12 @@ export class RoomClient {
           }
 
           if (data.type === 'presence') {
-            this.emit('presence', data);
+            // Translate to partner-arrived/partner-left
+            if (data.status === 'joined') {
+              this.emit('partner-arrived', { peerId: data.peerId });
+            } else if (data.status === 'left') {
+              this.emit('partner-left', { peerId: data.peerId });
+            }
             return;
           }
 
