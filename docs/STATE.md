@@ -1,30 +1,32 @@
-## STATE (2026-10-10 17:30)
+## STATE (2026-10-10 18:00)
 
-| Commit | Fixed | Test Again |
-|--------|-------|------------|
-| c184dfa | WebRTC send() await | YES - main fix |
-| 7400aa8 | Sender sees own video | YES |
+| Commit | Fix | Status |
+|--------|-----|--------|
+| 854f5c0 | Manual createOffer() | ✓ E2E pass |
 
-## Root Cause Found & Fixed
-**Error: Not connected at room-client.ts:222**
-- WebRTCClient was calling `roomClient.send('sdp', ...)` WITHOUT await
-- All send() calls now properly awaited
-- Added WebSocket state logging
+## Root Cause #2 Found
+**onnegotiationneeded NOT firing** - WebRTC timing bug
+- Added `createOffer()` method to WebRTCClient
+- Call it manually after adding all tracks
+- Logs now show: "Manually creating offer"
 
-## User Must Test Again
-1. Refresh both browsers
-2. Connect (should still work ✓)
-3. Click "Film file" or "Share screen"  
-4. Start streaming
-5. **Check console** - should NOT see "Not connected" errors
-6. Partner should see "Start watching" button
-7. Click it - video should appear
+## USER: Test Again Now!
+1. Refresh BOTH browsers completely
+2. Connect (both should say "Connected")
+3. Click "Film file", choose video, "Start streaming"
+4. Console should show:
+   ```
+   [RoomPage] Triggering manual negotiation...
+   [WebRTCClient] Manually creating offer...
+   [WebRTCClient] Sending offer: offer
+   [RoomClient] Sent: sdp
+   ```
+5. Partner should see "Start watching"
+6. Click → video plays
 
-## Next After Streaming Works
-1. Camera + Mic support
-2. Draggable face bubbles
-3. Settings panel
-4. Deploy to Vercel
+## If STILL broken
+- Share BOTH console logs
+- But E2E test PASSES now!
 
 ## Context
-157K/200K - critical fix done, awaiting user test
+160K/200K
