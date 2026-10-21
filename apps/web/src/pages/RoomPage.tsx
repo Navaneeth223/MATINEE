@@ -38,11 +38,8 @@ export default function RoomPage() {
     });
     rtcClientRef.current = rtcClient;
 
-    const timeout = setTimeout(() => {
-      if (rtcClient.getConnectionState() !== 'connected') {
-        setIceTimeout(true);
-      }
-    }, 15000);
+    // Only check ICE timeout when actually streaming
+    let timeout: NodeJS.Timeout | null = null;
 
     // Test stream event for E2E
     const handleTestStream = (event: any) => {
@@ -80,7 +77,7 @@ export default function RoomPage() {
     });
 
     return () => {
-      clearTimeout(timeout);
+      if (timeout) clearTimeout(timeout);
       window.removeEventListener('__test_start_stream', handleTestStream);
       rtcClient.close();
     };
@@ -102,26 +99,37 @@ export default function RoomPage() {
     setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
   };
 
-  const handleStreamReady = (stream: MediaStream, video: HTMLVideoElement) => {
-    sourceVideoRef.current = video;
+  const handleStreamReady = (stream: MediaStream, video?: HTMLVideoElement) => {
+    if (video) sourceVideoRef.current = video;
     setIsStreaming(true);
     
     if (rtcClientRef.current) {
       stream.getTracks().forEach(track => {
         rtcClientRef.current!.addTrack(track, stream);
       });
+      
+      // Start ICE timeout check ONLY when streaming starts
+      const timeout = setTimeout(() => {
+        if (rtcClientRef.current?.getConnectionState() !== 'connected') {
+          setIceTimeout(true);
+        }
+      }, 15000);
+      
+      return () => clearTimeout(timeout);
     }
 
-    const interval = setInterval(() => {
-      if (client && video) {
-        client.send('state', {
-          paused: video.paused,
-          time: video.currentTime,
-        });
-      }
-    }, 1000);
+    if (video) {
+      const interval = setInterval(() => {
+        if (client && video) {
+          client.send('state', {
+            paused: video.paused,
+            time: video.currentTime,
+          });
+        }
+      }, 1000);
 
-    return () => clearInterval(interval);
+      return () => clearInterval(interval);
+    }
   };
 
   const handleViewerCommand = (action: string, value?: number) => {
@@ -142,8 +150,11 @@ export default function RoomPage() {
 
   const partnerPresent = state === 'together';
   const youPresent = role !== null;
-  const canStream = state === 'together' && !remoteStream;
-  const isViewer = !!remoteStream;
+  
+  // Sender = the one who started streaming first
+  // Viewer = the one who receives remote stream
+  const isViewer = !!remoteStream && !isStreaming;
+  const canStartStreaming = state === 'together' && !isStreaming && !remoteStream;
 
   return (
     <div className="page">
@@ -189,7 +200,12 @@ export default function RoomPage() {
 
       <div className="main">
         <div className="stage">
-          {canStream && <SourcePanel onStreamReady={handleStreamReady} isSafari={/Safari/.test(navigator.userAgent) && !/Chrome/.test(navigator.userAgent)} />}
+          {canStartStreaming && (
+            <SourcePanel 
+              onStreamReady={handleStreamReady} 
+              isSafari={/Safari/.test(navigator.userAgent) && !/Chrome/.test(navigator.userAgent)} 
+            />
+          )}
           {isViewer && (
             <ViewerPanel
               stream={remoteStream}
@@ -197,9 +213,9 @@ export default function RoomPage() {
               sourceState={sourceState}
             />
           )}
-          {!canStream && !isViewer && (
+          {!canStartStreaming && !isViewer && (
             <div className="stage-content">
-              {state === 'together' ? 'Stage ready' : 'Waiting to connect'}
+              {state === 'together' && isStreaming ? 'Streaming...' : (state === 'together' ? 'Ready' : 'Waiting to connect')}
             </div>
           )}
         </div>
