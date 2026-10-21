@@ -156,6 +156,7 @@ export default function RoomPage() {
             onClick={handleCopy}
             disabled={!secret}
             className="btn btn-primary"
+            data-invite-url={secret && roomId ? buildInviteLink(window.location.origin, roomId, secret) : ''}
           >
             {copied ? 'Copied' : 'Copy invite'}
           </button>
@@ -163,7 +164,7 @@ export default function RoomPage() {
       </header>
 
       <div className="status-bar">
-        <p className={state.startsWith('error') ? 'error' : ''}>
+        <p className={state.startsWith('error') ? 'error' : ''} data-testid="status-text">
           {statusText}
         </p>
         {iceTimeout && (

@@ -1,23 +1,18 @@
 # Project State
 
+## D0 Progress: Bug reproduced
+**Test result**: A creates → "Waiting for partner", B joins → stays "Connecting", never reach "Connected together". No "Room is full" error shown, but connection fails. Confirms StrictMode double-connect bug (different peerIds or closing socket counted).
+
 ## Completed
-- **SLICE 2 core**: WebSocket relay (apps/edge DO), sealed messages (16-byte=22-char secret, AES-GCM-256), WebRTC perfect negotiation, streaming
-- **Server B1**: capacity = distinct admitted peerIds among LIVE sockets; replacement closes old socket (1000 'replaced'); vitest 3/3 pass
-- **Client B2**: useRoom cancelled flag in cleanup, StrictMode = one live connection, sessionStorage peerId+secret per room
-- **Styling B3**: plain CSS 6.2KB (bg #08070B, accent #E7C98E), layout stage+chat, presence dots, Copy invite
-- **Source C1**: Film/Screen selector, Format Doctor (AC-3 warning + ffmpeg), getDisplayMedia coaching, DRM detection, Cinema+ quality (4.5Mbps maintain-resolution H.264-first), Safari check
+- SLICE 2 core, Server B1 (live capacity), Client B2 (cancelled flag), Styling B3, Source C1 (Film/Screen)
+- E2E test created: reproduces bug, has data-testid selectors, invite URL extraction working
 
-## Inventory (C1 exists, C2 incomplete)
-| Component | Status | Lines | Notes |
-|-----------|--------|-------|-------|
-| SourcePanel | ✓ C1 | 233 | Film/Screen modes, quality settings |
-| ViewerPanel | Partial | 158 | Start watching, controls, boost; needs mixer UI |
-| WebRTCClient | ✓ C1 | 135 | Quality params, Safari codec preference |
-| useRoom | ✓ B2 | 152 | Cancelled flag, stable peerId |
-| room-do.ts | ✓ B1 | 406 | Live capacity, replacement |
-
-## Current blockers
-Context 121K/200K. Starting D0: reproduce "Room is full" bug, fix client+server, E2E test, manifest, zero console errors.
+## In progress - D0 fixes needed
+1. **Client fix**: connect inside setTimeout(0), cancelled flag, peerId read sync before effect (sessionStorage)
+2. **Server fix**: capacity = sockets.filter(readyState OPEN).map(peerId).distinct; evict silent >30s on 'full'; client pings every 10s
+3. **Test**: run 3x in row, all green
 
 ## Next command
-Create Playwright E2E test that reproduces "Room is full" bug with two contexts on wrangler.test.toml + vite dev harness.
+Fix apps/web/src/lib/useRoom.ts: wrap connect in setTimeout(0), read peerId synchronously before useEffect
+
+Context: 128K/200K
