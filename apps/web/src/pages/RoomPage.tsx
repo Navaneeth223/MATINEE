@@ -103,16 +103,21 @@ export default function RoomPage() {
     setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
   };
 
-  const handleStreamReady = (stream: MediaStream, video?: HTMLVideoElement) => {
+  const handleStreamReady = async (stream: MediaStream, video?: HTMLVideoElement) => {
     console.log('[RoomPage] Stream ready:', stream.id, 'tracks:', stream.getTracks().length, 'video:', !!video);
     if (video) sourceVideoRef.current = video;
     setIsStreaming(true);
     
     if (rtcClientRef.current) {
-      stream.getTracks().forEach(track => {
+      // Add all tracks
+      for (const track of stream.getTracks()) {
         console.log('[RoomPage] Adding track:', track.kind, track.id);
-        rtcClientRef.current!.addTrack(track, stream);
-      });
+        await rtcClientRef.current.addTrack(track, stream);
+      }
+      
+      // Manually trigger negotiation (onnegotiationneeded sometimes doesn't fire)
+      console.log('[RoomPage] Triggering manual negotiation...');
+      await rtcClientRef.current.createOffer();
       
       // Start ICE timeout check ONLY when streaming starts
       const timeout = setTimeout(() => {

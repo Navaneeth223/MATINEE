@@ -129,6 +129,20 @@ export class WebRTCClient {
     }
   }
 
+  async createOffer(): Promise<void> {
+    console.log('[WebRTCClient] Manually creating offer...');
+    try {
+      this.makingOffer = true;
+      await this.pc.setLocalDescription();
+      console.log('[WebRTCClient] Sending offer:', this.pc.localDescription?.type);
+      await this.roomClient.send('sdp', { description: this.pc.localDescription!.toJSON() });
+    } catch (err) {
+      console.error('[WebRTCClient] Failed to create offer:', err);
+    } finally {
+      this.makingOffer = false;
+    }
+  }
+
   getConnectionState(): RTCPeerConnectionState {
     return this.pc.connectionState;
   }
