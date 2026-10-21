@@ -158,6 +158,7 @@ export function SourcePanel({ onStreamReady, isSafari, isStreaming = false }: So
   const handleFilmStart = () => {
     if (!videoRef.current) return;
 
+    console.log('[SourcePanel] Film start - creating audio context');
     const video = videoRef.current;
     
     const audioCtx = new AudioContext();
@@ -178,17 +179,21 @@ export function SourcePanel({ onStreamReady, isSafari, isStreaming = false }: So
       ...dest.stream.getAudioTracks()
     ]);
 
+    console.log('[SourcePanel] Calling onStreamReady with', combined.getTracks().length, 'tracks');
     onStreamReady(combined, video);
   };
 
   const handleScreenCapture = async () => {
     try {
+      console.log('[SourcePanel] Requesting screen capture');
       const stream = await (navigator.mediaDevices as any).getDisplayMedia({
         video: { displaySurface: 'monitor' },
         audio: true,
       });
       
+      console.log('[SourcePanel] Screen capture got stream with', stream.getTracks().length, 'tracks');
       setScreenStream(stream);
+      console.log('[SourcePanel] Calling onStreamReady');
       onStreamReady(stream);
     } catch (err) {
       console.error('Screen capture failed:', err);

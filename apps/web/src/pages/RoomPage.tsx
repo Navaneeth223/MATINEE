@@ -104,41 +104,45 @@ export default function RoomPage() {
   };
 
   const handleStreamReady = async (stream: MediaStream, video?: HTMLVideoElement) => {
-    console.log('[RoomPage] Stream ready:', stream.id, 'tracks:', stream.getTracks().length, 'video:', !!video);
-    if (video) sourceVideoRef.current = video;
-    setIsStreaming(true);
-    
-    if (rtcClientRef.current) {
-      // Add all tracks
-      for (const track of stream.getTracks()) {
-        console.log('[RoomPage] Adding track:', track.kind, track.id);
-        await rtcClientRef.current.addTrack(track, stream);
+    try {
+      console.log('[RoomPage] Stream ready:', stream.id, 'tracks:', stream.getTracks().length, 'video:', !!video);
+      if (video) sourceVideoRef.current = video;
+      setIsStreaming(true);
+      
+      if (rtcClientRef.current) {
+        // Add all tracks
+        for (const track of stream.getTracks()) {
+          console.log('[RoomPage] Adding track:', track.kind, track.id);
+          await rtcClientRef.current.addTrack(track, stream);
+        }
+        
+        // Manually trigger negotiation (onnegotiationneeded sometimes doesn't fire)
+        console.log('[RoomPage] Triggering manual negotiation...');
+        await rtcClientRef.current.createOffer();
+        
+        // Start ICE timeout check ONLY when streaming starts
+        setTimeout(() => {
+          if (rtcClientRef.current?.getConnectionState() !== 'connected') {
+            console.warn('[RoomPage] ICE timeout - not connected after 15s');
+            setIceTimeout(true);
+          }
+        }, 15000);
       }
-      
-      // Manually trigger negotiation (onnegotiationneeded sometimes doesn't fire)
-      console.log('[RoomPage] Triggering manual negotiation...');
-      await rtcClientRef.current.createOffer();
-      
-      // Start ICE timeout check ONLY when streaming starts
-      setTimeout(() => {
-        if (rtcClientRef.current?.getConnectionState() !== 'connected') {
-          console.warn('[RoomPage] ICE timeout - not connected after 15s');
-          setIceTimeout(true);
-        }
-      }, 15000);
-    }
 
-    if (video) {
-      const interval = setInterval(() => {
-        if (client && video) {
-          client.send('state', {
-            paused: video.paused,
-            time: video.currentTime,
-          });
-        }
-      }, 1000);
+      if (video) {
+        const interval = setInterval(() => {
+          if (client && video) {
+            client.send('state', {
+              paused: video.paused,
+              time: video.currentTime,
+            });
+          }
+        }, 1000);
 
-      return () => clearInterval(interval);
+        return () => clearInterval(interval);
+      }
+    } catch (err) {
+      console.error('[RoomPage] handleStreamReady ERROR:', err);
     }
   };
 
