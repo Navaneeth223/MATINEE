@@ -44,6 +44,18 @@ export default function RoomPage() {
       }
     }, 15000);
 
+    // Test stream event for E2E
+    const handleTestStream = (event: any) => {
+      const stream = event.detail?.stream;
+      if (stream && rtcClient) {
+        setIsStreaming(true);
+        stream.getTracks().forEach((track: MediaStreamTrack) => {
+          rtcClient.addTrack(track, stream);
+        });
+      }
+    };
+    window.addEventListener('__test_start_stream', handleTestStream);
+
     client.on('msg:cmd', async ({ payload }: any) => {
       const video = sourceVideoRef.current;
       if (!video || !isStreaming) return;
@@ -69,6 +81,7 @@ export default function RoomPage() {
 
     return () => {
       clearTimeout(timeout);
+      window.removeEventListener('__test_start_stream', handleTestStream);
       rtcClient.close();
     };
   }, [client, isStreaming]);

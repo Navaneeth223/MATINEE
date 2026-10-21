@@ -16,10 +16,63 @@ export function SourcePanel({ onStreamReady, isSafari }: SourcePanelProps) {
   const [screenStream, setScreenStream] = useState<MediaStream | null>(null);
   const [nearBlack, setNearBlack] = useState(false);
   
-  const videoRef = useRef<HTMLVideoElement>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
   const screenVideoRef = useRef<HTMLVideoElement>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const localGainRef = useRef<GainNode | null>(null);
+  const testStreamRef = useRef<MediaStream | null>(null);
+
+  // Test source mode for E2E tests
+  const searchParams = new URLSearchParams(window.location.search);
+  const isTestMode = searchParams.has('testsource');
+
+  useEffect(() => {
+    if (!isTestMode) return;
+
+    // Create canvas + oscillator test stream
+    const canvas = document.createElement('canvas');
+    canvas.width = 640;
+    canvas.height = 480;
+    const ctx = canvas.getContext('2d')!;
+
+    let frame = 0;
+    const drawInterval = setInterval(() => {
+      ctx.fillStyle = `hsl(${frame % 360}, 100%, 50%)`;
+      ctx.fillRect(0, 0, 640, 480);
+      ctx.fillStyle = 'white';
+      ctx.font = '48px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(`Test Frame ${frame}`, 320, 240);
+      frame++;
+    }, 100);
+
+    const videoStream = canvas.captureStream(10);
+
+    const audioCtx = new AudioContext();
+    const oscillator = audioCtx.createOscillator();
+    oscillator.frequency.value = 440;
+    const dest = audioCtx.createMediaStreamDestination();
+    oscillator.connect(dest);
+    oscillator.start();
+
+    const combined = new MediaStream([
+      ...videoStream.getVideoTracks(),
+      ...dest.stream.getAudioTracks()
+    ]);
+
+    testStreamRef.current = combined;
+
+    return () => {
+      clearInterval(drawInterval);
+      oscillator.stop();
+      audioCtx.close();
+    };
+  }, [isTestMode]);
+
+  const handleTestStreamStart = () => {
+    if (!testStreamRef.current) return;
+    onStreamReady(testStreamRef.current);
+  };
 
   useEffect(() => {
     if (!videoRef.current || !file) return;
@@ -148,6 +201,23 @@ export function SourcePanel({ onStreamReady, isSafari }: SourcePanelProps) {
   }, [volume]);
 
   if (mode === null) {
+    if (isTestMode && testStreamRef.current) {
+      return (
+        <div className="source-panel">
+          <div className="card space-y-4">
+            <h2 data-testid="test-source-ready">Test source ready</h2>
+            <button
+              onClick={handleTestStreamStart}
+              className="btn btn-primary w-full"
+              data-testid="start-test-stream"
+            >
+              Start streaming
+            </button>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="source-panel">
         <div className="card space-y-4">

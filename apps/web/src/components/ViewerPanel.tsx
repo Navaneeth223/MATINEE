@@ -32,6 +32,11 @@ export function ViewerPanel({ stream, onCommand, sourceState }: ViewerPanelProps
   }, [boost]);
 
   useEffect(() => {
+    if (!videoRef.current || !stream) return;
+    videoRef.current.srcObject = stream;
+  }, [stream]);
+
+  useEffect(() => {
     if (!videoRef.current || !stream || !ready) return;
 
     const video = videoRef.current;
@@ -115,11 +120,7 @@ export function ViewerPanel({ stream, onCommand, sourceState }: ViewerPanelProps
         muted
         playsInline
         style={{ aspectRatio: '16 / 9' }}
-        onLoadedMetadata={() => {
-          if (videoRef.current && stream) {
-            videoRef.current.srcObject = stream;
-          }
-        }}
+        data-testid="viewer-video"
       />
 
       {sourceState && (
