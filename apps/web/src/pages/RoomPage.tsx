@@ -7,6 +7,7 @@ import { SourcePanel } from '../components/SourcePanel';
 import { ViewerPanel } from '../components/ViewerPanel';
 import { FaceBubble } from '../components/FaceBubble';
 import { useMedia } from '../lib/useMedia';
+import { useKeyboard } from '../lib/useKeyboard';
 
 export default function RoomPage() {
   const { roomId } = useParams<{ roomId: string }>();
@@ -19,10 +20,12 @@ export default function RoomPage() {
   const [sourceState, setSourceState] = useState<{ paused: boolean; time: number } | null>(null);
   const [iceTimeout, setIceTimeout] = useState(false);
   const [showCameraControls, setShowCameraControls] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   
   const chatEndRef = useRef<HTMLDivElement>(null);
   const rtcClientRef = useRef<WebRTCClient | null>(null);
   const sourceVideoRef = useRef<HTMLVideoElement | null>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
 
   // Camera and microphone
   const localMedia = useMedia({ audio: true, video: true, autoStart: false });
@@ -194,6 +197,69 @@ export default function RoomPage() {
     localMedia.stopMedia();
     setShowCameraControls(false);
   };
+
+  const toggleFullscreen = () => {
+    if (!stageRef.current) return;
+    
+    if (!document.fullscreenElement) {
+      stageRef.current.requestFullscreen().then(() => {
+        setIsFullscreen(true);
+      }).catch(err => {
+        console.error('Fullscreen error:', err);
+      });
+    } else {
+      document.exitFullscreen().then(() => {
+        setIsFullscreen(false);
+      });
+    }
+  };
+
+  const handlePlayPause = () => {
+    if (isViewer) {
+      // Viewer controls the source
+      const action = sourceState?.paused ? 'play' : 'pause';
+      handleViewerCommand(action);
+    } else if (sourceVideoRef.current) {
+      // Sender controls their own video
+      if (sourceVideoRef.current.paused) {
+        sourceVideoRef.current.play();
+      } else {
+        sourceVideoRef.current.pause();
+      }
+    }
+  };
+
+  const handleSeek = (seconds: number) => {
+    if (isViewer) {
+      handleViewerCommand('skip', seconds);
+    } else if (sourceVideoRef.current) {
+      sourceVideoRef.current.currentTime += seconds;
+    }
+  };
+
+  // Keyboard shortcuts
+  useKeyboard({
+    onSpace: handlePlayPause,
+    onLeftArrow: () => handleSeek(-10),
+    onRightArrow: () => handleSeek(10),
+    onF: toggleFullscreen,
+    onM: localMedia.toggleAudio,
+    onEscape: () => {
+      if (isFullscreen) {
+        toggleFullscreen();
+      }
+    },
+  }, isStreaming || isViewer);
+
+  // Listen for fullscreen changes
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
 
   const statusText = {
     reading: 'Reading invitation...',
