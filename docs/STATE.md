@@ -1,10 +1,23 @@
 # Project State
 
 ## Completed
-**SLICE 2 "From Me" — WebRTC streaming with E2EE rooms**: Two browsers connect via WebSocket relay (apps/edge Durable Object), exchange sealed messages (16-byte secret = 22-char invite, AES-GCM-256), negotiate WebRTC with perfect negotiation, stream video+audio. Server capacity tracks DISTINCT admitted peerIds among LIVE sockets (not stored array); same peerId rejoining closes old socket (1000 'replaced'), count stays 1, no spurious presence events. Client useRoom has `cancelled` flag in cleanup; React StrictMode produces exactly one live connection. Source uses WebAudio branch (MediaElementSource → localGain → speakers + MediaStreamDestination → peer) so local volume never affects stream. Viewer: play/pause/seek controls (send sealed 'cmd', source executes, replies sealed 'state'), volume 0-100% + boost to 300% with DynamicsCompressor limiter, saved per device. Format Doctor: detects AC-3/Dolby audio after 2s play, shows ffmpeg command. Plain CSS styling (6.2KB asset): bg #08070B, accent #E7C98E, layout stage 16:9 left + chat 340px right (stacked <1024px), top bar with Matinee/room-code/presence-dots/Copy-invite. Hash stripped for all users, secret/peerId in sessionStorage, reload works. Protocol vitest 28/28 pass. Build: tsc clean, vite 6.2KB CSS.
+- **SLICE 2 core**: WebSocket relay (apps/edge DO), sealed messages (16-byte=22-char secret, AES-GCM-256), WebRTC perfect negotiation, streaming
+- **Server B1**: capacity = distinct admitted peerIds among LIVE sockets; replacement closes old socket (1000 'replaced'); vitest 3/3 pass
+- **Client B2**: useRoom cancelled flag in cleanup, StrictMode = one live connection, sessionStorage peerId+secret per room
+- **Styling B3**: plain CSS 6.2KB (bg #08070B, accent #E7C98E), layout stage+chat, presence dots, Copy invite
+- **Source C1**: Film/Screen selector, Format Doctor (AC-3 warning + ffmpeg), getDisplayMedia coaching, DRM detection, Cinema+ quality (4.5Mbps maintain-resolution H.264-first), Safari check
+
+## Inventory (C1 exists, C2 incomplete)
+| Component | Status | Lines | Notes |
+|-----------|--------|-------|-------|
+| SourcePanel | ✓ C1 | 233 | Film/Screen modes, quality settings |
+| ViewerPanel | Partial | 158 | Start watching, controls, boost; needs mixer UI |
+| WebRTCClient | ✓ C1 | 135 | Quality params, Safari codec preference |
+| useRoom | ✓ B2 | 152 | Cancelled flag, stable peerId |
+| room-do.ts | ✓ B1 | 406 | Live capacity, replacement |
 
 ## Current blockers
-None. Manual testing required (no Playwright).
+Context 121K/200K. Starting D0: reproduce "Room is full" bug, fix client+server, E2E test, manifest, zero console errors.
 
-## Next
-Manual test per docs/MANUAL-TEST.md (two windows + second device). If pass: deploy apps/edge to Cloudflare Workers, update docs/DEPLOY.md with live URL.
+## Next command
+Create Playwright E2E test that reproduces "Room is full" bug with two contexts on wrangler.test.toml + vite dev harness.
