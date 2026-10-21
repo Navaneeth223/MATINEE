@@ -1,14 +1,77 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { useRoom } from '../lib/useRoom';
 import { buildInviteLink } from '@matinee/protocol';
+import { WebRTCClient } from '../lib/webrtc-client';
+import { SourcePanel } from '../components/SourcePanel';
+import { ViewerPanel } from '../components/ViewerPanel';
 
 export default function RoomPage() {
   const { roomId } = useParams<{ roomId: string }>();
-  const { state, role, messages, sendMessage, secret } = useRoom(roomId);
+  const { state, role, messages, sendMessage, client, secret } = useRoom(roomId);
   const [inputText, setInputText] = useState('');
   const [copied, setCopied] = useState(false);
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+  const [sourceState, setSourceState] = useState<{ paused: boolean; time: number } | null>(null);
+  const [iceTimeout, setIceTimeout] = useState(false);
+  
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const rtcClientRef = useRef<WebRTCClient | null>(null);
+  const sourceVideoRef = useRef<HTMLVideoElement | null>(null);
+
+  useEffect(() => {
+    if (!client) return;
+
+    const rtcClient = new WebRTCClient({
+      roomClient: client,
+      iceServers: [
+        { urls: 'stun:stun.cloudflare.com:3478' },
+        { urls: 'stun:stun.l.google.com:19302' },
+      ],
+      onTrack: (stream) => {
+        setRemoteStream(stream);
+      },
+      onConnectionState: (state) => {
+        console.log('WebRTC state:', state);
+      },
+    });
+    rtcClientRef.current = rtcClient;
+
+    const timeout = setTimeout(() => {
+      if (rtcClient.getConnectionState() !== 'connected') {
+        setIceTimeout(true);
+      }
+    }, 15000);
+
+    client.on('msg:cmd', async ({ payload }: any) => {
+      const video = sourceVideoRef.current;
+      if (!video || !isStreaming) return;
+
+      const { action, value } = payload;
+      if (action === 'play') await video.play();
+      else if (action === 'pause') video.pause();
+      else if (action === 'seek') video.currentTime = value;
+      else if (action === 'skip') video.currentTime += value;
+
+      client.send('state', {
+        paused: video.paused,
+        time: video.currentTime,
+      });
+    });
+
+    client.on('msg:state', ({ payload }: any) => {
+      setSourceState({
+        paused: payload.paused !== false,
+        time: payload.currentTime || 0,
+      });
+    });
+
+    return () => {
+      clearTimeout(timeout);
+      rtcClient.close();
+    };
+  }, [client, isStreaming]);
 
   const handleCopy = () => {
     if (!secret || !roomId) return;
@@ -26,6 +89,34 @@ export default function RoomPage() {
     setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
   };
 
+  const handleStreamReady = (stream: MediaStream, video: HTMLVideoElement) => {
+    sourceVideoRef.current = video;
+    setIsStreaming(true);
+    
+    if (rtcClientRef.current) {
+      stream.getTracks().forEach(track => {
+        rtcClientRef.current!.addTrack(track, stream);
+      });
+    }
+
+    // Send state updates periodically
+    const interval = setInterval(() => {
+      if (client && video) {
+        client.send('state', {
+          paused: video.paused,
+          time: video.currentTime,
+        });
+      }
+    }, 1000);
+
+    return () => clearInterval(interval);
+  };
+
+  const handleViewerCommand = (action: string, value?: number) => {
+    if (!client) return;
+    client.send('cmd', { action, value });
+  };
+
   const statusText = {
     reading: 'Reading invitation...',
     connecting: 'Connecting...',
@@ -39,6 +130,8 @@ export default function RoomPage() {
 
   const partnerPresent = state === 'together';
   const youPresent = role !== null;
+  const canStream = state === 'together' && !remoteStream;
+  const isViewer = !!remoteStream;
 
   return (
     <div className="min-h-screen bg-[#08070B] text-[#FBF6EC] flex flex-col">
@@ -78,20 +171,33 @@ export default function RoomPage() {
         <p className={`text-sm ${state.startsWith('error') ? 'text-[#E07A8F]' : 'text-[#B7AEC0]'}`}>
           {statusText}
         </p>
+        {iceTimeout && (
+          <p className="text-sm text-[#E07A8F] mt-1">
+            Your network needs a relay (not set up yet)
+          </p>
+        )}
       </div>
 
       {/* Main content */}
       <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
         {/* Stage */}
-        <div className="flex-1 flex items-center justify-center p-4 lg:p-8">
-          <div 
-            className="w-full max-w-4xl bg-[#15121B] rounded-[14px] overflow-hidden"
-            style={{ aspectRatio: '16 / 9' }}
-          >
-            <div className="w-full h-full flex items-center justify-center text-[#B7AEC0]">
-              Stage area
+        <div className="flex-1 p-4 lg:p-8 overflow-y-auto">
+          {canStream && <SourcePanel onStreamReady={handleStreamReady} />}
+          {isViewer && (
+            <ViewerPanel
+              stream={remoteStream}
+              onCommand={handleViewerCommand}
+              sourceState={sourceState}
+            />
+          )}
+          {!canStream && !isViewer && (
+            <div 
+              className="w-full max-w-4xl mx-auto bg-[#15121B] rounded-[14px] flex items-center justify-center text-[#B7AEC0]"
+              style={{ aspectRatio: '16 / 9' }}
+            >
+              {state === 'together' ? 'Stage ready' : 'Waiting to connect'}
             </div>
-          </div>
+          )}
         </div>
 
         {/* Chat */}
