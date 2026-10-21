@@ -120,14 +120,12 @@ export default function RoomPage() {
       await rtcClientRef.current.createOffer();
       
       // Start ICE timeout check ONLY when streaming starts
-      const timeout = setTimeout(() => {
+      setTimeout(() => {
         if (rtcClientRef.current?.getConnectionState() !== 'connected') {
           console.warn('[RoomPage] ICE timeout - not connected after 15s');
           setIceTimeout(true);
         }
       }, 15000);
-      
-      return () => clearTimeout(timeout);
     }
 
     if (video) {
