@@ -193,11 +193,15 @@ export function SourcePanel({ onStreamReady, isSafari, isStreaming = false }: So
       
       console.log('[SourcePanel] Screen capture got stream with', stream.getTracks().length, 'tracks');
       setScreenStream(stream);
-      console.log('[SourcePanel] Calling onStreamReady');
-      onStreamReady(stream);
     } catch (err) {
       console.error('Screen capture failed:', err);
     }
+  };
+
+  const handleScreenStart = () => {
+    if (!screenStream) return;
+    console.log('[SourcePanel] Screen start - calling onStreamReady');
+    onStreamReady(screenStream);
   };
 
   useEffect(() => {
@@ -357,7 +361,14 @@ export function SourcePanel({ onStreamReady, isSafari, isStreaming = false }: So
                 </div>
               )}
 
-              <p className="text-sm text-muted">Screen sharing active. The sender controls playback.</p>
+              <p className="text-sm text-muted">Screen preview ready. Click below to start streaming.</p>
+              
+              <button
+                onClick={handleScreenStart}
+                className="btn btn-primary w-full"
+              >
+                Start streaming
+              </button>
             </>
           )}
         </div>
