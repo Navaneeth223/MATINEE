@@ -427,3 +427,49 @@ input[type="file"]::file-selector-button:hover {
 .link-btn:hover {
   opacity: 0.8;
 }
+
+/* Face Bubble Styles */
+.face-bubble {
+  transition: opacity 0.2s;
+}
+
+.face-bubble:hover .bubble-controls {
+  opacity: 1 !important;
+}
+
+.bubble-btn {
+  background: rgba(255, 255, 255, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  color: white;
+  font-size: 0.75rem;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.bubble-btn:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.bubble-btn.active {
+  background: var(--accent);
+  color: var(--bg);
+  border-color: var(--accent);
+}
+
+.bubble-restore-btn {
+  background: var(--accent);
+  color: var(--bg);
+  border: none;
+  padding: 0.75rem 1.5rem;
+  border-radius: var(--radius);
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.bubble-restore-btn:hover {
+  opacity: 0.9;
+}

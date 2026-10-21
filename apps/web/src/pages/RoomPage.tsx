@@ -5,6 +5,8 @@ import { buildInviteLink } from '@matinee/protocol';
 import { WebRTCClient } from '../lib/webrtc-client';
 import { SourcePanel } from '../components/SourcePanel';
 import { ViewerPanel } from '../components/ViewerPanel';
+import { FaceBubble } from '../components/FaceBubble';
+import { useMedia } from '../lib/useMedia';
 
 export default function RoomPage() {
   const { roomId } = useParams<{ roomId: string }>();
@@ -13,12 +15,17 @@ export default function RoomPage() {
   const [copied, setCopied] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+  const [remoteCameraStream, setRemoteCameraStream] = useState<MediaStream | null>(null);
   const [sourceState, setSourceState] = useState<{ paused: boolean; time: number } | null>(null);
   const [iceTimeout, setIceTimeout] = useState(false);
+  const [showCameraControls, setShowCameraControls] = useState(false);
   
   const chatEndRef = useRef<HTMLDivElement>(null);
   const rtcClientRef = useRef<WebRTCClient | null>(null);
   const sourceVideoRef = useRef<HTMLVideoElement | null>(null);
+
+  // Camera and microphone
+  const localMedia = useMedia({ audio: true, video: true, autoStart: false });
 
   useEffect(() => {
     if (!client) return;
@@ -31,7 +38,15 @@ export default function RoomPage() {
       ],
       onTrack: (stream) => {
         console.log('[RoomPage] Remote stream received:', stream.id, 'tracks:', stream.getTracks().length);
-        setRemoteStream(stream);
+        
+        // If we already have a remote stream (movie), this must be camera/mic
+        if (remoteStream) {
+          console.log('[RoomPage] Setting as remote camera stream');
+          setRemoteCameraStream(stream);
+        } else {
+          console.log('[RoomPage] Setting as remote movie stream');
+          setRemoteStream(stream);
+        }
       },
       onConnectionState: (state) => {
         console.log('[RoomPage] WebRTC state:', state);
@@ -151,6 +166,35 @@ export default function RoomPage() {
     client.send('cmd', { action, value });
   };
 
+  const handleStartCamera = async () => {
+    try {
+      await localMedia.startMedia();
+      
+      // Add camera/mic tracks to WebRTC
+      if (localMedia.stream && rtcClientRef.current) {
+        console.log('[RoomPage] Adding camera/mic tracks to WebRTC');
+        for (const track of localMedia.stream.getTracks()) {
+          await rtcClientRef.current.addTrack(track, localMedia.stream);
+        }
+        
+        // Trigger negotiation if this is the first time adding tracks
+        if (!isStreaming) {
+          console.log('[RoomPage] Triggering camera negotiation...');
+          await rtcClientRef.current.createOffer();
+        }
+      }
+      
+      setShowCameraControls(true);
+    } catch (err) {
+      console.error('[RoomPage] Camera start error:', err);
+    }
+  };
+
+  const handleStopCamera = () => {
+    localMedia.stopMedia();
+    setShowCameraControls(false);
+  };
+
   const statusText = {
     reading: 'Reading invitation...',
     connecting: 'Connecting...',
@@ -247,6 +291,42 @@ export default function RoomPage() {
           </div>
           
           <div className="chat-input-area">
+            {state === 'together' && !localMedia.isActive && (
+              <button
+                onClick={handleStartCamera}
+                className="btn btn-primary w-full"
+                style={{ marginBottom: '0.5rem' }}
+              >
+                📷 Start Camera & Mic
+              </button>
+            )}
+            
+            {localMedia.isActive && (
+              <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                <button
+                  onClick={localMedia.toggleVideo}
+                  className="btn btn-primary"
+                  style={{ flex: 1 }}
+                >
+                  🎥 {localMedia.stream?.getVideoTracks()[0]?.enabled ? 'Hide' : 'Show'}
+                </button>
+                <button
+                  onClick={localMedia.toggleAudio}
+                  className="btn btn-primary"
+                  style={{ flex: 1 }}
+                >
+                  🎤 {localMedia.stream?.getAudioTracks()[0]?.enabled ? 'Mute' : 'Unmute'}
+                </button>
+                <button
+                  onClick={handleStopCamera}
+                  className="btn"
+                  style={{ background: 'var(--rose)', color: 'white' }}
+                >
+                  ✕
+                </button>
+              </div>
+            )}
+            
             <div className="chat-input-group">
               <input
                 type="text"
@@ -267,6 +347,14 @@ export default function RoomPage() {
           </div>
         </div>
       </div>
+
+      {/* Face Bubbles */}
+      {localMedia.isActive && localMedia.stream && (
+        <FaceBubble stream={localMedia.stream} localStream={true} />
+      )}
+      {remoteCameraStream && (
+        <FaceBubble stream={remoteCameraStream} localStream={false} />
+      )}
     </div>
   );
 }
