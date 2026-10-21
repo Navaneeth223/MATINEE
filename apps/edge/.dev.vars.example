@@ -1,0 +1,9 @@
+# Matinee Edge (Cloudflare Workers) - Development Variables
+
+# No secrets required for basic functionality
+# TURN server credentials would go here when implemented
+
+# Example TURN config (not yet implemented):
+# TURN_URL=turn:turn.example.com:3478
+# TURN_USERNAME=username
+# TURN_CREDENTIAL=password
