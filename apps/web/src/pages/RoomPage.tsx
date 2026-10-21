@@ -6,6 +6,7 @@ import { WebRTCClient } from '../lib/webrtc-client';
 import { SourcePanel } from '../components/SourcePanel';
 import { ViewerPanel } from '../components/ViewerPanel';
 import { FaceBubble } from '../components/FaceBubble';
+import { SettingsPanel } from '../components/SettingsPanel';
 import { useMedia } from '../lib/useMedia';
 import { useKeyboard } from '../lib/useKeyboard';
 
@@ -21,6 +22,9 @@ export default function RoomPage() {
   const [iceTimeout, setIceTimeout] = useState(false);
   const [showCameraControls, setShowCameraControls] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [volume, setVolume] = useState(100);
+  const [quality, setQuality] = useState<'auto' | 'high' | 'medium' | 'low'>('auto');
   
   const chatEndRef = useRef<HTMLDivElement>(null);
   const rtcClientRef = useRef<WebRTCClient | null>(null);
@@ -198,6 +202,21 @@ export default function RoomPage() {
     setShowCameraControls(false);
   };
 
+  const handleVolumeChange = (newVolume: number) => {
+    setVolume(newVolume);
+    // Apply to video elements if they exist
+    if (sourceVideoRef.current) {
+      sourceVideoRef.current.volume = newVolume / 100;
+    }
+  };
+
+  const handleQualityChange = (newQuality: 'auto' | 'high' | 'medium' | 'low') => {
+    setQuality(newQuality);
+    // Quality changes would be applied when capturing next time
+    // or could trigger recapture with new constraints
+    console.log('[RoomPage] Quality preset changed to:', newQuality);
+  };
+
   const toggleFullscreen = () => {
     if (!stageRef.current) return;
     
@@ -299,6 +318,14 @@ export default function RoomPage() {
               <span>Partner</span>
             </div>
           </div>
+          
+          <button
+            onClick={() => setShowSettings(true)}
+            className="btn"
+            title="Settings"
+          >
+            ⚙️
+          </button>
           
           <button
             onClick={handleCopy}
@@ -431,6 +458,17 @@ export default function RoomPage() {
       )}
       {remoteCameraStream && (
         <FaceBubble stream={remoteCameraStream} localStream={false} />
+      )}
+
+      {/* Settings Panel */}
+      {showSettings && (
+        <SettingsPanel
+          onClose={() => setShowSettings(false)}
+          onVolumeChange={handleVolumeChange}
+          onQualityChange={handleQualityChange}
+          currentVolume={volume}
+          currentQuality={quality}
+        />
       )}
     </div>
   );
