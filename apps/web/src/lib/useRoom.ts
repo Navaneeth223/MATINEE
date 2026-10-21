@@ -16,7 +16,6 @@ function readAndStripSecret(roomId: string): Uint8Array | null {
   const stored = sessionStorage.getItem(`matinee-secret-${roomId}`);
   if (stored) {
     const bytes = parseInviteFragment(`#k=${stored}`);
-    // Strip hash for all users
     if (window.location.hash) {
       window.history.replaceState(null, '', window.location.pathname + window.location.search);
     }
@@ -57,7 +56,6 @@ export function useRoom(roomId: string | undefined) {
   const clientRef = useRef<RoomClient | null>(null);
   const secretRef = useRef<Uint8Array | null>(null);
   const peerIdRef = useRef<string | null>(null);
-  const mountedRef = useRef(true);
 
   const [secret] = useState(() => {
     if (!roomId) return null;
@@ -70,15 +68,9 @@ export function useRoom(roomId: string | undefined) {
   });
 
   useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-    };
-  }, []);
-
-  useEffect(() => {
     if (!roomId || !secret) return;
 
+    let cancelled = false;
     secretRef.current = secret;
     peerIdRef.current = getPeerId(roomId);
     setState('connecting');
@@ -87,23 +79,23 @@ export function useRoom(roomId: string | undefined) {
     clientRef.current = client;
 
     const handleConnected = ({ role }: { role: 'creator' | 'joiner' }) => {
-      if (!mountedRef.current) return;
+      if (cancelled) return;
       setRole(role);
       setState('alone');
     };
 
     const handlePartnerArrived = () => {
-      if (!mountedRef.current) return;
+      if (cancelled) return;
       setState('together');
     };
 
     const handlePartnerLeft = () => {
-      if (!mountedRef.current) return;
+      if (cancelled) return;
       setState('alone');
     };
 
     const handleError = (err: { message: string }) => {
-      if (!mountedRef.current) return;
+      if (cancelled) return;
       if (err.message.includes('Wrong secret')) {
         setState('error:wrong-secret');
       } else if (err.message.includes('full')) {
@@ -114,7 +106,7 @@ export function useRoom(roomId: string | undefined) {
     };
 
     const handleChat = ({ payload }: { payload: { text: string } }) => {
-      if (!mountedRef.current) return;
+      if (cancelled) return;
       setMessages(prev => [...prev, { from: 'partner', text: payload.text }]);
     };
 
@@ -125,13 +117,13 @@ export function useRoom(roomId: string | undefined) {
     client.on('msg:chat', handleChat);
 
     client.connect(secret).catch(err => {
-      if (!mountedRef.current) return;
+      if (cancelled) return;
       console.error('Connection failed:', err);
       setState('error:closed');
     });
 
     return () => {
-      mountedRef.current = false;
+      cancelled = true;
       client.disconnect();
       clientRef.current = null;
     };
