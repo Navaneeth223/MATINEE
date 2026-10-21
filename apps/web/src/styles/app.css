@@ -473,3 +473,37 @@ input[type="file"]::file-selector-button:hover {
 .bubble-restore-btn:hover {
   opacity: 0.9;
 }
+
+/* Fullscreen button */
+.fullscreen-btn {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  width: 48px;
+  height: 48px;
+  background: rgba(21, 18, 27, 0.8);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  color: var(--accent);
+  font-size: 1.5rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  transition: all 0.2s;
+}
+
+.fullscreen-btn:hover {
+  background: var(--accent);
+  color: var(--bg);
+  transform: scale(1.05);
+}
+
+.fullscreen-btn:active {
+  transform: scale(0.95);
+}
+
+.stage:fullscreen .fullscreen-btn {
+  background: rgba(8, 7, 11, 0.9);
+}

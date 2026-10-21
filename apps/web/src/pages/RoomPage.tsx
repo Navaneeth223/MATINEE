@@ -323,7 +323,18 @@ export default function RoomPage() {
       </div>
 
       <div className="main">
-        <div className="stage">
+        <div className="stage" ref={stageRef}>
+          {/* Fullscreen button */}
+          {(isStreaming || isViewer) && (
+            <button
+              onClick={toggleFullscreen}
+              className="fullscreen-btn"
+              title={isFullscreen ? 'Exit fullscreen (F)' : 'Fullscreen (F)'}
+            >
+              {isFullscreen ? '⛶' : '⛶'}
+            </button>
+          )}
+          
           {(canStartStreaming || isStreaming) && (
             <SourcePanel 
               onStreamReady={handleStreamReady} 
