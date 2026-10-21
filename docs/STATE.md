@@ -1,28 +1,29 @@
-## STATE (2026-10-10 16:45)
+## STATE (2026-10-10 17:00)
 
-| Phase | Status | Next |
-|-------|--------|------|
-| D0 | ✓ | StrictMode bug fixed |
-| D1 | testing | Fixed sender/receiver logic, ICE timing - USER TESTING NOW |
+| Commit | Done | Notes |
+|--------|------|-------|
+| d7f2364 | D0 ✓ | StrictMode bug fixed, E2E 3/3 |
+| 84e7ef2 | D1 fix | Sender/receiver logic, ICE timing |
+| a7e4736 | debug | Comprehensive console logging |
 
-## Just Fixed (commit 84e7ef2)
-- canStartStreaming: only first peer (not streaming, no remote)
-- isViewer: only receiver (has remote, not sending)  
-- ICE timeout: moved to handleStreamReady (only when streaming)
-- Both sides showing "Choose source" → FIXED
+## User Testing → Fixed
+- ✅ Both connected (D0)
+- ✅ "Relay needed" immediate → fixed (now only after 15s streaming)
+- ✅ Both see "Choose source" → fixed (sender vs receiver)
+- ⏳ Video not streaming → needs console check
+- ⏳ Chat payload empty → needs console check
 
-## User Testing Results
-- ✅ Both connected (D0 working)
-- ❌ Video not reaching partner (WebRTC negotiation issue?)
-- ❌ Chat messages not visible (payload empty?)
-- ⚠️ "Relay needed" showing immediately → FIXED in 84e7ef2
+## Ready to Test
+User should:
+1. Open DevTools console (F12)
+2. Test streaming (film/screen)
+3. Share console logs showing WebRTC + Chat
 
-## TODO Next
-1. Test locally: reproduce video + chat issues
-2. Add console logs for WebRTC + chat debugging
-3. Camera/mic support
-4. Face bubbles (draggable)
-5. Fullscreen improvements
+## TODO After Testing
+- Camera/mic with draggable face bubbles
+- Fullscreen video improvements
+- Settings panel
+- Deploy Vercel + Cloudflare
 
 ## Context
-149K/200K - continue debugging streaming
+151K/200K
